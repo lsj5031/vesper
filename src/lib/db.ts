@@ -1,4 +1,4 @@
-import Dexie, { type Table, liveQuery } from 'dexie';
+import Dexie, { type Table } from 'dexie';
 
 export interface Feed {
     id?: number;

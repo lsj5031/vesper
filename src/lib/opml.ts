@@ -1,5 +1,4 @@
 import { db } from './db';
-import { addNewFeed } from './rss';
 
 export async function importOPML(file: File) {
     const text = await file.text();
@@ -10,7 +9,6 @@ export async function importOPML(file: File) {
     if (!body) throw new Error('Invalid OPML');
 
     const processOutline = async (node: Element, parentFolderId?: number) => {
-        const type = node.getAttribute('type');
         const xmlUrl = node.getAttribute('xmlUrl');
         const textAttr = node.getAttribute('text') || node.getAttribute('title');
 

@@ -53,7 +53,7 @@
                 bind:value={newFeedUrl} 
                 placeholder="Feed URL..." 
                 class="input bg-vesper-charcoal border-none text-sm h-8 rounded-none placeholder-gray-500 focus:ring-1 focus:ring-vesper-ftPink w-full"
-                on:keydown={(e: KeyboardEvent) => e.key === 'Enter' && handleAddFeed()}
+                on:keydown={(e) => e.key === 'Enter' && handleAddFeed()}
             />
             <button class="btn btn-sm variant-filled-primary rounded-none font-bold text-xs" on:click={handleAddFeed}>+</button>
         </div>
