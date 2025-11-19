@@ -22,9 +22,19 @@
     async function toggleStar(article: any) {
         await db.articles.update(article.id!, { starred: article.starred ? 0 : 1 });
     }
+
+    let scrollContainer: HTMLElement;
+
+    function scrollToTop() {
+        scrollContainer?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 </script>
 
-<div class="h-full overflow-y-auto bg-o3-black-90 min-h-0">
+<div 
+    bind:this={scrollContainer}
+    class="h-full overflow-y-auto bg-o3-black-90 min-h-0 relative"
+    style="scrollbar-color: #333 #1a1a1a;"
+>
     {#if $articleStore}
         <article class="max-w-3xl mx-auto px-8 py-12">
             <!-- Header -->
@@ -67,6 +77,15 @@
                  <p class="text-o3-black-50 italic font-headline">End of Article</p>
             </footer>
         </article>
+
+        <!-- Scroll to Top Button -->
+        <button 
+            class="fixed bottom-8 right-8 bg-o3-teal text-o3-black-90 w-10 h-10 rounded-full shadow-lg flex items-center justify-center hover:bg-o3-white transition-colors z-50"
+            on:click={scrollToTop}
+            title="Scroll to Top"
+        >
+            ↑
+        </button>
     {:else}
         <div class="h-full flex items-center justify-center text-o3-black-60 flex-col">
             <div class="text-6xl mb-4 opacity-20">V</div>
