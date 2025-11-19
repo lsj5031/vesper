@@ -1,6 +1,8 @@
 import Parser from 'rss-parser';
 import DOMPurify from 'dompurify';
 import { db, type Feed, type Article } from './db';
+import { tokenize } from './search';
+import { refreshProgress } from './stores';
 
 
 // Initialize Parser
@@ -19,27 +21,41 @@ if (typeof window !== 'undefined') {
     });
 }
 
-export async function fetchFeed(url: string) {
+export async function fetchFeed(url: string, maxRetries = 2, forceRefresh = false) {
     // Use backend proxy endpoint to avoid CORS issues
-    const proxyUrl = `/api/fetch-feed?url=${encodeURIComponent(url)}`;
-    
-    try {
-        const response = await fetch(proxyUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
-        const text = await response.text();
-        const feedData = await parser.parseString(text);
-        
-        return feedData;
-    } catch (e) {
-        console.error(`Failed to fetch ${url}`, e);
-        throw e;
+    let proxyUrl = `/api/fetch-feed?url=${encodeURIComponent(url)}`;
+    if (forceRefresh) {
+        proxyUrl += '&refresh=true';
     }
+    
+    let lastError: any;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(proxyUrl);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            
+            const text = await response.text();
+            const feedData = await parser.parseString(text);
+            
+            return feedData;
+        } catch (e) {
+            lastError = e;
+            // Only retry on network errors, not on parse errors
+            if (attempt < maxRetries && (e instanceof TypeError || (e as any).message?.includes('HTTP'))) {
+                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); // Exponential backoff
+                continue;
+            }
+            break;
+        }
+    }
+    
+    console.error(`Failed to fetch ${url} after ${maxRetries + 1} attempts`, lastError);
+    throw lastError;
 }
 
-export async function syncFeed(feed: Feed) {
+export async function syncFeed(feed: Feed, unreadLimit = 50, forceRefresh = false) {
     try {
-        const data = await fetchFeed(feed.url);
+        const data = await fetchFeed(feed.url, 2, forceRefresh);
         
         // Update Feed Metadata
         await db.feeds.update(feed.id!, {
@@ -48,8 +64,8 @@ export async function syncFeed(feed: Feed) {
             error: undefined
         });
 
-        // Process Articles
-        const newArticles: Article[] = data.items.map(item => {
+        // Process all articles (convert to Article objects first)
+        const processedArticles: Article[] = data.items.map(item => {
             const contentRaw = item['content:encoded'] || item.content || item.summary || '';
             const cleanContent = sanitize(contentRaw);
             
@@ -64,28 +80,60 @@ export async function syncFeed(feed: Feed) {
                 isoDate: item.isoDate || new Date().toISOString(),
                 receivedDate: Date.now(),
                 read: 0,
-                starred: 0
+                starred: 0,
+                words: tokenize(`${item.title || ''} ${cleanContent}`)
             };
         });
 
-        // Bulk Put (Dexie will handle duplicates if we use the right keys, but 'put' might overwrite read status)
-        // We want to add NEW articles, but not overwrite existing read status of old ones.
-        // Strategy: Check existence of GUIDs or catch errors on 'add'.
-        // Better Strategy: Use a transaction.
+        // Efficiently filter for NEW articles (check keys only)
+        // This avoids loading full article content for entire history
+        const incomingGuids = processedArticles.map(a => a.guid);
         
-        await db.transaction('rw', db.articles, async () => {
-            for (const article of newArticles) {
-                const existing = await db.articles
-                    .where({ feedId: article.feedId, guid: article.guid })
-                    .first();
-                
-                if (!existing) {
-                    await db.articles.add(article);
-                }
-            }
+        // Find which of these GUIDs already exist for this feed
+        const existingGuidsSet = new Set<string>();
+        
+        // Use the compound index to find matching records but only select the 'guid' field.
+        const existingRecords = await db.articles
+            .where('[feedId+guid]')
+            .anyOf(incomingGuids.map(g => [feed.id!, g]))
+            .toArray();
+            
+        existingRecords.forEach(r => existingGuidsSet.add(r.guid));
+
+        const newArticles = processedArticles.filter(
+            a => !existingGuidsSet.has(a.guid)
+        );
+
+        // Auto-Archive Strategy:
+        // 1. Sort by date (newest first)
+        // 2. Top 50: Mark as unread (visible in inbox)
+        // 3. Rest: Mark as read (auto-archived)
+        const articlesSortedByDate = newArticles.sort((a, b) => {
+            const dateA = new Date(a.isoDate).getTime();
+            const dateB = new Date(b.isoDate).getTime();
+            return dateB - dateA; // Newest first
         });
 
-        return newArticles.length;
+        const unreadArticles = articlesSortedByDate
+            .slice(0, unreadLimit)
+            .map(a => ({ ...a, read: 0 as const })); // Mark as unread
+
+        const archivedArticles = articlesSortedByDate
+            .slice(unreadLimit)
+            .map(a => ({ ...a, read: 1 as const })); // Mark as read (auto-archived)
+
+        const allNewArticles = [...unreadArticles, ...archivedArticles];
+
+        // Bulk insert (optimized for large batches)
+        if (allNewArticles.length > 0) {
+            await db.articles.bulkAdd(allNewArticles);
+        }
+
+        return {
+            unread: unreadArticles.length,
+            archived: archivedArticles.length,
+            total: allNewArticles.length
+        };
     } catch (err: any) {
         await db.feeds.update(feed.id!, { error: err.message });
         throw err;
@@ -114,6 +162,41 @@ export async function addNewFeed(url: string, folderId?: number) {
 
 export async function refreshAllFeeds() {
     const feeds = await db.feeds.toArray();
-    const results = await Promise.allSettled(feeds.map(f => syncFeed(f)));
-    return results;
+    const concurrency = 3;
+    const results: PromiseSettledResult<{ unread: number; archived: number; total: number }>[] = [];
+    
+    try {
+        // Queue-based concurrency control
+        const queue = [...feeds];
+        let completed = 0;
+        
+        refreshProgress.set({ completed: 0, total: feeds.length });
+        
+        const worker = async () => {
+            while (queue.length > 0) {
+                const feed = queue.shift();
+                if (!feed) return;
+                
+                try {
+                    const result = await syncFeed(feed);
+                    results.push({ status: 'fulfilled', value: result });
+                } catch (err) {
+                    results.push({ status: 'rejected', reason: err });
+                }
+                
+                completed++;
+                refreshProgress.set({ completed, total: feeds.length });
+            }
+        };
+        
+        // Start concurrency workers
+        const workers = Array(Math.min(concurrency, feeds.length))
+            .fill(null)
+            .map(() => worker());
+        
+        await Promise.all(workers);
+        return results;
+    } finally {
+        refreshProgress.set(null);
+    }
 }

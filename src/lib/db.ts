@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { tokenize } from './search';
 
 export interface Feed {
     id?: number;
@@ -24,6 +25,7 @@ export interface Article {
     receivedDate: number; // When we fetched it
     read: 0 | 1; // Boolean stored as number for easier indexing if needed
     starred: 0 | 1;
+    words?: string[]; // Search tokens
 }
 
 export interface Folder {
@@ -47,9 +49,23 @@ class ReaderDB extends Dexie {
         super('VesperDB');
         this.version(1).stores({
             feeds: '++id, &url, folderId',
-            articles: '++id, [feedId+guid], feedId, isoDate, read, starred', // Compound index for uniqueness
+            articles: '++id, [feedId+guid], feedId, isoDate, read, starred, *words', // Compound index for uniqueness
             folders: '++id, &name',
             settings: '&key'
+        });
+        
+        this.version(2).stores({
+            articles: '++id, [feedId+guid], feedId, isoDate, read, starred, *words'
+        }).upgrade(async trans => {
+            // Migration: Tokenize existing articles
+            // We use toCollection() to iterate safely over everything
+            await trans.table('articles').toCollection().modify(article => {
+                if (!article.words) {
+                    // Combine title, snippet, and content for searching
+                    const text = `${article.title} ${article.snippet || ''} ${article.content || ''}`;
+                    article.words = tokenize(text);
+                }
+            });
         });
     }
 }

@@ -1,8 +1,10 @@
 <script lang="ts">
+    import { onDestroy } from 'svelte';
     import { liveQuery } from 'dexie';
     import { db, type Feed } from '../db';
-    import { selectedFeedId, selectedArticleId } from '../stores';
+    import { selectedFeedId, selectedArticleId, searchQuery, refreshProgress, userSettings } from '../stores';
     import { importOPML, exportOPML } from '../opml';
+    import { importBackup, exportBackup } from '../backup';
     import { addNewFeed, refreshAllFeeds, syncFeed } from '../rss';
     
     // Live Queries
@@ -35,6 +37,13 @@
         }
     }
 
+    function handleBackupSelect(e: Event) {
+        const input = e.target as HTMLInputElement;
+        if (input.files?.length) {
+            importBackup(input.files[0]).then(() => alert('Restored!'));
+        }
+    }
+
     function selectFeed(id: number | undefined) {
         if (id !== undefined) $selectedFeedId = id;
     }
@@ -47,7 +56,7 @@
         refreshingFeeds = refreshingFeeds; // Trigger reactivity
         
         try {
-            await syncFeed(feed);
+            await syncFeed(feed, 50, true); // forceRefresh = true
         } catch (err) {
             console.error('Feed refresh failed', err);
         } finally {
@@ -61,6 +70,16 @@
         return refreshingFeeds.has(feedId) 
             ? 'text-o3-black-50 hover:text-o3-teal px-1 animate-spin'
             : 'text-o3-black-50 hover:text-o3-teal px-1';
+    }
+
+    async function handleRefreshAll() {
+        if ($refreshProgress) return; // Already refreshing
+        
+        try {
+            await refreshAllFeeds();
+        } catch (err) {
+            console.error('Refresh all failed', err);
+        }
     }
 
     async function handleDeleteFeed(feed: Feed, e: Event) {
@@ -78,6 +97,27 @@
             $selectedFeedId = 'all';
         }
     }
+
+    // Periodic Refresh Timer
+    let refreshTimer: any;
+    
+    $: {
+        // Clean up existing timer
+        clearInterval(refreshTimer);
+        
+        // Set up new timer based on current interval setting
+        const intervalMs = $userSettings.refreshInterval * 60 * 1000;
+        if (intervalMs > 0) {
+            refreshTimer = setInterval(() => {
+                // Only refresh if not already refreshing
+                if (!$refreshProgress) {
+                    refreshAllFeeds();
+                }
+            }, intervalMs);
+        }
+    }
+    
+    onDestroy(() => clearInterval(refreshTimer));
 </script>
 
 <div class="h-full flex flex-col bg-o3-black-90 border-r border-o3-black-30">
@@ -89,6 +129,27 @@
 
     <!-- Controls -->
     <div class="p-4 space-y-2 border-b border-o3-black-30">
+        <!-- Search -->
+        <div class="relative">
+            <input 
+                type="text" 
+                bind:value={$searchQuery} 
+                placeholder="Search articles..." 
+                class="input bg-o3-black-80 border-none text-sm h-8 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal w-full pl-8"
+            />
+            <span class="absolute left-2 top-1.5 text-o3-black-50 text-xs">🔍</span>
+            {#if $searchQuery}
+                <button 
+                    class="absolute right-2 top-1.5 text-o3-black-50 hover:text-o3-white text-xs"
+                    on:click={() => $searchQuery = ''}
+                >
+                    ×
+                </button>
+            {/if}
+        </div>
+
+        <div class="divider-h border-o3-black-80 my-2"></div>
+
         <div class="flex gap-2">
             <input 
                 type="text" 
@@ -101,13 +162,33 @@
         </div>
         <div class="flex justify-between text-[10px] text-o3-black-50 uppercase tracking-wider font-bold">
             <button class="hover:text-o3-white" on:click={() => document.getElementById('opmlInput')?.click()}>Import OPML</button>
-            <button class="hover:text-o3-white" on:click={exportOPML}>Export</button>
+            <button class="hover:text-o3-white" on:click={exportOPML}>Export OPML</button>
             <input type="file" id="opmlInput" class="hidden" on:change={handleFileSelect} accept=".opml,.xml" />
         </div>
+        <div class="flex justify-between text-[10px] text-o3-black-50 uppercase tracking-wider font-bold mt-1">
+            <button class="hover:text-o3-white" on:click={() => document.getElementById('backupInput')?.click()}>Restore Backup</button>
+            <button class="hover:text-o3-white" on:click={exportBackup}>Backup Data</button>
+            <input type="file" id="backupInput" class="hidden" on:change={handleBackupSelect} accept=".json" />
+        </div>
         <div class="flex gap-1">
-            <button class="flex-1 text-[10px] bg-o3-black-80 hover:bg-o3-black-70 py-1 text-o3-paper" on:click={refreshAllFeeds}>
-                Refresh All
-            </button>
+            {#if $refreshProgress}
+                <div class="flex-1 flex flex-col gap-1">
+                    <button 
+                        class="w-full text-[10px] bg-o3-black-80 py-1 text-o3-paper cursor-default relative overflow-hidden"
+                        disabled
+                    >
+                        <div class="absolute inset-0 bg-o3-teal opacity-30" style="width: {($refreshProgress.completed / $refreshProgress.total) * 100}%"></div>
+                        <span class="relative z-10">Updating {$refreshProgress.completed}/{$refreshProgress.total}</span>
+                    </button>
+                </div>
+            {:else}
+                <button 
+                    class="flex-1 text-[10px] bg-o3-black-80 hover:bg-o3-black-70 py-1 text-o3-paper" 
+                    on:click={handleRefreshAll}
+                >
+                    Refresh All
+                </button>
+            {/if}
             <button 
                 class="px-2 text-[10px] py-1 {isManaging ? 'bg-o3-teal text-o3-black-90' : 'bg-o3-black-80 text-o3-paper hover:bg-o3-black-70'}" 
                 on:click={() => isManaging = !isManaging}
@@ -144,12 +225,16 @@
                     {folder.name}
                 </div>
                 {#each feedsList.filter(f => f.folderId === folder.id) as feed}
-                    <div class="group flex items-center w-full {$selectedFeedId === feed.id ? 'bg-o3-black-80 border-l-2 border-o3-teal' : 'hover:bg-o3-black-80/30'}">
+                    {@const isUpdating = $refreshProgress ? true : false}
+                    <div class="group flex items-center w-full {$selectedFeedId === feed.id ? 'bg-o3-black-80 border-l-2 border-o3-teal' : isUpdating ? 'bg-o3-black-80/50' : 'hover:bg-o3-black-80/30'}">
                         <button 
                             class="flex-1 text-left px-3 py-1.5 text-sm truncate {$selectedFeedId === feed.id ? 'text-o3-white' : 'text-o3-black-40 group-hover:text-o3-white'}"
                             on:click={() => selectFeed(feed.id)}
                         >
                             {feed.title}
+                            {#if isUpdating}
+                                <span class="inline-block ml-1 text-o3-teal animate-pulse">⟳</span>
+                            {/if}
                         </button>
                         
                         <div class="flex items-center pr-2 gap-1">
@@ -185,12 +270,16 @@
                 Feeds
             </div>
             {#each feedsList.filter(f => !f.folderId) as feed}
-                <div class="group flex items-center w-full {$selectedFeedId === feed.id ? 'bg-o3-black-80 border-l-2 border-o3-teal' : 'hover:bg-o3-black-80/30'}">
+                {@const isUpdating = $refreshProgress ? true : false}
+                <div class="group flex items-center w-full {$selectedFeedId === feed.id ? 'bg-o3-black-80 border-l-2 border-o3-teal' : isUpdating ? 'bg-o3-black-80/50' : 'hover:bg-o3-black-80/30'}">
                     <button 
                         class="flex-1 text-left px-3 py-1.5 text-sm truncate {$selectedFeedId === feed.id ? 'text-o3-white' : 'text-o3-black-40 group-hover:text-o3-white'}"
                         on:click={() => selectFeed(feed.id)}
                     >
                         {feed.title}
+                        {#if isUpdating}
+                            <span class="inline-block ml-1 text-o3-teal animate-pulse">⟳</span>
+                        {/if}
                     </button>
 
                     <div class="flex items-center pr-2 gap-1">

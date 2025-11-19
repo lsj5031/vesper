@@ -9,6 +9,12 @@ export const selectedArticleId = writable<number | null>(null);
 // Global Search/Filter
 export const searchQuery = writable<string>('');
 
+// Refresh Progress (null when not refreshing, otherwise {completed, total})
+export const refreshProgress = writable<{ completed: number; total: number } | null>(null);
+
+// Help Modal
+export const showHelp = writable<boolean>(false);
+
 // Settings Store (Synced with LocalStorage for immediate UI prefs, DB for deeper config)
 export const userSettings = localStorageStore('vesper-settings', {
     theme: 'vesper',

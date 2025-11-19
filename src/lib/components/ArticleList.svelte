@@ -1,8 +1,10 @@
 <script lang="ts">
     import { liveQuery } from 'dexie';
     import { db, type Article, markArticlesAsRead, markArticlesAsUnread, markFeedAsRead } from '../db';
-    import { selectedFeedId, selectedArticleId } from '../stores';
+    import { selectedFeedId, selectedArticleId, searchQuery, refreshProgress } from '../stores';
+    import { refreshAllFeeds } from '../rss';
     import { formatDistanceToNow } from 'date-fns';
+    import { tokenize } from '../search';
     
     let filterStatus: 'all' | 'unread' = 'all';
     let selectedIds = new Set<number>();
@@ -14,10 +16,52 @@
     $: {
         const fid = $selectedFeedId;
         const status = filterStatus;
+        const query = $searchQuery;
         
         articlesStore = liveQuery(async () => {
             let collection;
 
+            // 1. Search takes precedence if active
+            const searchTokens = tokenize(query);
+            
+            if (searchTokens.length > 0) {
+                // Optimization: Filter by the longest token first (likely most unique)
+                // or just the first one. Let's use the first one for prefix matching support.
+                const firstToken = searchTokens[0];
+                
+                // Get candidates from DB using index
+                let candidateIds = await db.articles
+                    .where('words').startsWith(firstToken)
+                    .primaryKeys();
+                
+                // If we have multiple tokens, we must intersect in memory (or multiple queries)
+                // For "apple banana", we got IDs for "apple*". Now filter those candidates.
+                // But 'words' index helps us find candidates. To filter further, we need to fetch them.
+                // OR we can fetch the full objects now and filter in JS.
+                
+                let results = await db.articles.where('id').anyOf(candidateIds).reverse().sortBy('isoDate');
+                
+                // Refine results for other tokens in memory
+                if (searchTokens.length > 1) {
+                     const remainingTokens = searchTokens.slice(1);
+                     results = results.filter(a => 
+                        remainingTokens.every(t => a.words?.some(w => w.startsWith(t)))
+                     );
+                }
+
+                // Apply Feed Filter if not searching globally
+                // (Optional: usually search is global. Let's keep it global for now as per typical UX)
+                // If you want scoped search, you'd filter `results` by feedId here.
+
+                // Apply Read/Unread filter
+                if (status === 'unread') {
+                    results = results.filter(a => a.read === 0);
+                }
+
+                return results;
+            }
+
+            // 2. Standard Navigation (No Search)
             if (fid === 'all') {
                 collection = db.articles.orderBy('isoDate').reverse();
             } else if (fid === 'starred') {
@@ -134,7 +178,56 @@
     function isArticleSelected(id: number | undefined): boolean {
         return id !== undefined && selectedIds.has(id);
     }
+
+    function handleListKeydown(e: KeyboardEvent) {
+        // Don't trigger when typing in input fields
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+            return;
+        }
+
+        const articles: Article[] = $articlesStore || [];
+        if (articles.length === 0) return;
+
+        // Refresh all feeds on 'r'
+        if (e.key === 'r' || e.key === 'R') {
+            if (!$refreshProgress) {
+                refreshAllFeeds();
+            }
+            return;
+        }
+
+        // Navigation: j (next), k (previous)
+        if (e.key === 'j' || e.key === 'k') {
+            const currentIndex = articles.findIndex(a => a.id === $selectedArticleId);
+            let newIndex = currentIndex;
+
+            if (e.key === 'j') {
+                // Next article
+                newIndex = currentIndex + 1;
+                if (newIndex >= articles.length) newIndex = articles.length - 1;
+            } else if (e.key === 'k') {
+                // Previous article
+                newIndex = currentIndex - 1;
+                if (newIndex < 0) newIndex = 0;
+            }
+
+            if (newIndex >= 0 && newIndex < articles.length) {
+                const newArticleId = articles[newIndex].id;
+                if (newArticleId !== undefined) {
+                    $selectedArticleId = newArticleId;
+                    
+                    // Scroll into view
+                    const element = document.getElementById('article-list-item-' + newArticleId);
+                    if (element) {
+                        element.scrollIntoView({ block: 'nearest' });
+                    }
+                }
+            }
+        }
+    }
 </script>
+
+<svelte:window on:keydown={handleListKeydown} />
 
 <div class="h-full flex flex-col bg-o3-black-90">
     <!-- Toolbar -->
@@ -237,6 +330,7 @@
             {/if}
             {#each $articlesStore as article (article.id)}
                 <div 
+                    id={'article-list-item-' + article.id}
                     class="w-full flex items-stretch border-b border-o3-black-30 hover:bg-o3-black-80 group transition-colors {$selectedArticleId === article.id ? 'bg-o3-black-80' : ''} {isArticleSelected(article.id) ? 'bg-o3-teal bg-opacity-20' : ''}"
                 >
                     {#if selectionMode}
