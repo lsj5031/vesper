@@ -16,16 +16,24 @@ export default {
 	theme: {
 		extend: {
             colors: {
-                vesper: {
-                    salmon:     '#fff1e5',    /* FT pink paper */
-                    salmonDark: '#fce4d6',
-                    pink:       '#e00b50',    /* FT magenta accent (old) */
-                    ftPink:     '#990f3d',    /* 2025 FT primary accent */
-                    dark:       '#0f1419',    /* Almost black */
-                    charcoal:   '#1f2a33',
-                    midgray:    '#333d47',
-                    lightgray:  '#98a7b9',
-                    white:      '#ffffff',
+                o3: {
+                    'teal': 'var(--o3-color-palette-teal)',
+                    'claret': 'var(--o3-color-palette-claret)',
+                    'oxford': 'var(--o3-color-palette-oxford)',
+                    'paper': 'var(--o3-color-palette-paper)',
+                    'white': 'var(--o3-color-palette-white)',
+                    'black': 'var(--o3-color-palette-black)',
+                    'slate': 'var(--o3-color-palette-slate)',
+                    'black-90': 'var(--o3-color-palette-black-90)',
+                    'black-80': 'var(--o3-color-palette-black-80)',
+                    'black-70': 'var(--o3-color-palette-black-70)',
+                    'black-60': 'var(--o3-color-palette-black-60)',
+                    'black-50': 'var(--o3-color-palette-black-50)',
+                    'black-40': 'var(--o3-color-palette-black-40)',
+                    'black-30': 'var(--o3-color-palette-black-30)',
+                    'black-20': 'var(--o3-color-palette-black-20)',
+                    'black-10': 'var(--o3-color-palette-black-10)',
+                    'black-5': 'var(--o3-color-palette-black-5)',
                 }
             },
             fontFamily: {

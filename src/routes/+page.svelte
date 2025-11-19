@@ -4,19 +4,19 @@
     import Reader from '$lib/components/Reader.svelte';
 </script>
 
-<div id="vesper-layout" class="grid h-screen w-screen overflow-hidden bg-vesper-dark">
+<div id="vesper-layout" class="grid h-screen w-screen overflow-hidden bg-o3-black-90">
     <!-- Left Panel: Navigation (280px fixed) -->
-    <aside class="hidden md:block border-r border-vesper-midgray h-screen" style="grid-column: 1; width: 280px;">
+    <aside class="hidden md:block border-r border-o3-black-30 h-screen" style="grid-column: 1; width: 280px;">
         <Sidebar />
     </aside>
 
     <!-- Middle Panel: Feed (380px fixed) -->
-    <section class="border-r border-vesper-midgray h-screen" style="grid-column: 2; width: 380px;">
+    <section class="border-r border-o3-black-30 h-screen" style="grid-column: 2; width: 380px;">
         <ArticleList />
     </section>
 
     <!-- Right Panel: Reader (Fluid) -->
-    <main class="bg-vesper-dark h-screen" style="grid-column: 3;">
+    <main class="bg-o3-black-90 h-screen" style="grid-column: 3;">
         <Reader />
     </main>
 </div>

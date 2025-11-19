@@ -1,27 +1,49 @@
+/* Import Origami design tokens */
+@import '@financial-times/o3-foundation/css/professional';
+
 /* Write your global styles here, in PostCSS syntax */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Set Origami brand context */
+html {
+  --o3-brand: professional;
+}
+
 @layer base {
   body {
-    @apply bg-vesper-dark text-white font-body leading-relaxed antialiased;
-    background-color: #0f1419;
+    @apply font-body leading-relaxed antialiased;
+    background-color: var(--o3-color-palette-black-90);
+    color: var(--o3-color-palette-white);
   }
   
-  /* Typography Overrides */
+  /* Typography Overrides - keep custom fonts but use Origami sizing/weight */
   h1, h2, h3, h4, h5, .h1, .h2, .h3 { 
-      @apply font-headline font-bold tracking-tight text-white; 
+      @apply font-headline font-bold tracking-tight;
+      color: var(--o3-color-palette-white);
   }
   
   a { 
-      @apply text-vesper-ftPink hover:underline decoration-1 underline-offset-2 transition-colors; 
+      color: var(--o3-color-use-case-link-text);
+      text-decoration: none;
+      border-bottom: 1px solid var(--o3-color-use-case-link-underline);
+      transition: color 0.2s ease;
   }
   
-  /* Selection Color (FT Style) */
+  a:hover {
+      color: var(--o3-color-use-case-link-text-hover);
+      border-bottom-color: var(--o3-color-use-case-link-text-hover);
+  }
+  
+  a:focus {
+      color: var(--o3-color-use-case-link-text-focus);
+  }
+  
+  /* Selection Color (FT Teal) */
   ::selection { 
-      background: #990f3d; 
-      color: white; 
+      background: var(--o3-color-palette-teal);
+      color: var(--o3-color-palette-white); 
   }
 
   /* Scrollbar styling for Webkit */
@@ -30,10 +52,14 @@
       height: 8px;
   }
   ::-webkit-scrollbar-track {
-      @apply bg-vesper-charcoal;
+      background-color: var(--o3-color-palette-black-80);
   }
   ::-webkit-scrollbar-thumb {
-      @apply bg-vesper-midgray rounded-full hover:bg-vesper-lightgray;
+      background-color: var(--o3-color-palette-black-50);
+      border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+      background-color: var(--o3-color-palette-black-40);
   }
 }
 
@@ -45,46 +71,73 @@
     --theme-rounded-base: 0px;
     --theme-rounded-container: 0px;
 
-    /* Skeleton Specific Colors Mapped to FT Palette */
-    --color-surface-50: 31 42 51;   /* Charcoal */
-    --color-surface-100: 31 42 51;
-    --color-surface-200: 15 20 25;  /* Dark */
-    --color-surface-300: 51 61 71;  /* Midgray */
-    --color-surface-400: 152 167 185; /* Lightgray */
-    --color-surface-500: 255 255 255; /* White */
+    /* Map Skeleton colors to Origami palette */
+    --color-surface-50: 242 229 218;   /* black-5 */
+    --color-surface-100: 230 217 206;  /* black-10 */
+    --color-surface-200: 51 48 46;     /* black-80 */
+    --color-surface-300: 102 96 92;    /* black-60 */
+    --color-surface-400: 153 144 136;  /* black-40 */
+    --color-surface-500: 255 255 255;  /* white */
     
-    /* Primary is the FT Pink */
-    --color-primary-500: 153 15 61; /* #990f3d */
+    /* Primary is Origami Teal */
+    --color-primary-500: 13 118 128;   /* #0d7680 */
     
-    /* Secondary is the Salmon */
+    /* Secondary is Origami Paper */
     --color-secondary-500: 255 241 229; /* #fff1e5 */
 }
 
-.salmon-bg { background-color: #fff1e5; }
-.salmon-text { color: #990f3d; }
+/* Origami-compliant color utilities */
+.bg-o3-paper { background-color: var(--o3-color-palette-paper); }
+.text-o3-paper { color: var(--o3-color-palette-paper); }
 
-/* Unread Badge: Salmon background, dark text */
+.bg-o3-teal { background-color: var(--o3-color-palette-teal); }
+.text-o3-teal { color: var(--o3-color-palette-teal); }
+
+.bg-o3-claret { background-color: var(--o3-color-palette-claret); }
+.text-o3-claret { color: var(--o3-color-palette-claret); }
+
+.bg-o3-oxford { background-color: var(--o3-color-palette-oxford); }
+.text-o3-oxford { color: var(--o3-color-palette-oxford); }
+
+.bg-o3-slate { background-color: var(--o3-color-palette-slate); }
+.text-o3-slate { color: var(--o3-color-palette-slate); }
+
+.bg-o3-black-90 { background-color: var(--o3-color-palette-black-90); }
+.text-o3-black-90 { color: var(--o3-color-palette-black-90); }
+
+/* Unread Badge: Paper background with Teal text (Origami compliant) */
 .badge-unread {
-    @apply bg-vesper-salmon text-vesper-dark text-[10px] px-1.5 py-0.5 rounded-sm font-bold uppercase tracking-wider border border-vesper-salmonDark;
+    @apply text-[10px] px-1.5 py-0.5 rounded-sm font-bold uppercase tracking-wider;
+    background-color: var(--o3-color-palette-paper);
+    color: var(--o3-color-palette-teal);
+    border: 1px solid var(--o3-color-palette-black-10);
 }
 
 /* Article Typography (Prose) */
 .prose-vesper {
     @apply prose prose-invert max-w-none;
     /* Headings */
-    @apply prose-headings:font-headline prose-headings:font-bold prose-headings:text-white;
+    @apply prose-headings:font-headline prose-headings:font-bold;
+    color: var(--o3-color-palette-white);
     /* Links */
-    @apply prose-a:text-vesper-ftPink prose-a:no-underline prose-a:border-b prose-a:border-vesper-ftPink/30 hover:prose-a:border-vesper-ftPink;
+    --tw-prose-links: var(--o3-color-palette-teal);
+    --tw-prose-invert-links: var(--o3-color-palette-teal);
+    @apply prose-a:no-underline prose-a:border-b;
     /* Body */
-    @apply text-lg leading-8 text-gray-300;
+    @apply text-lg leading-8;
+    color: var(--o3-color-palette-black-10);
     /* Blockquotes */
-    @apply prose-blockquote:border-l-vesper-ftPink prose-blockquote:bg-vesper-charcoal/50 prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic;
+    --tw-prose-quotes: var(--o3-color-palette-oxford);
+    --tw-prose-quote-borders: var(--o3-color-palette-oxford);
+    @apply prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic;
 }
 
-/* Divider utilities */
+/* Divider utilities - Origami compliant */
 .divider-v {
-    @apply border-r border-vesper-midgray h-full;
+    border-right: 1px solid var(--o3-color-palette-black-30);
+    height: 100%;
 }
 .divider-h {
-    @apply border-b border-vesper-midgray w-full;
+    border-bottom: 1px solid var(--o3-color-palette-black-30);
+    width: 100%;
 }

@@ -25,9 +25,11 @@ An elegant, sophisticated, completely offline-first RSS reader that looks and fe
 - Offline-first (IndexedDB + PWA)
 - Three-panel FT.com inspired layout
 - OPML Import/Export
-- Salmon Accents & Perfect Typography
+- FT Origami O3 design tokens with custom fonts
+- Salmon accents & perfect typography
 
 ## Tech Stack
 - SvelteKit 2
 - Dexie.js
-- Tailwind CSS + Skeleton
+- Tailwind CSS + FT Origami O3
+- Custom fonts: Playfair Display & IBM Plex Sans

@@ -39,10 +39,10 @@
     }
 </script>
 
-<div class="h-full flex flex-col bg-vesper-dark">
+<div class="h-full flex flex-col bg-o3-black-90">
     <!-- Toolbar -->
-    <div class="h-14 border-b border-vesper-midgray flex items-center px-4 justify-between sticky top-0 bg-vesper-dark z-10">
-        <span class="text-xs font-bold uppercase tracking-wider text-vesper-lightgray">
+    <div class="h-14 border-b border-o3-black-30 flex items-center px-4 justify-between sticky top-0 bg-o3-black-90 z-10">
+        <span class="text-xs font-bold uppercase tracking-wider text-o3-black-50">
             {#if $selectedFeedId === 'all'}All Articles
             {:else if $selectedFeedId === 'starred'}Starred
             {:else}Feed Articles{/if}
@@ -54,33 +54,33 @@
         {#if $articlesStore}
             {#each $articlesStore as article (article.id)}
                 <button 
-                    class="w-full text-left p-4 border-b border-vesper-midgray hover:bg-vesper-charcoal group transition-colors relative
-                    {$selectedArticleId === article.id ? 'bg-vesper-charcoal' : ''}"
+                    class="w-full text-left p-4 border-b border-o3-black-30 hover:bg-o3-black-80 group transition-colors relative
+                    {$selectedArticleId === article.id ? 'bg-o3-black-80' : ''}"
                     on:click={() => selectArticle(article.id)}
                 >
                     {#if article.read === 0}
                         <span class="absolute top-4 right-4 badge-unread">New</span>
                     {/if}
                     
-                    <div class="text-xs text-vesper-ftPink mb-1 font-bold uppercase tracking-wide">
+                    <div class="text-xs text-o3-teal mb-1 font-bold uppercase tracking-wide">
                         {article.author || 'Unknown'}
                     </div>
                     
-                    <h3 class="font-headline font-bold text-lg leading-snug mb-2 text-gray-100 group-hover:text-white">
+                    <h3 class="font-headline font-bold text-lg leading-snug mb-2 text-o3-black-5 group-hover:text-o3-white">
                         {article.title}
                     </h3>
                     
-                    <div class="text-sm text-gray-500 line-clamp-2 mb-2 font-body leading-relaxed">
+                    <div class="text-sm text-o3-black-40 line-clamp-2 mb-2 font-body leading-relaxed">
                         {article.snippet}
                     </div>
                     
-                    <div class="text-[10px] text-gray-600 uppercase tracking-wider font-bold">
+                    <div class="text-[10px] text-o3-black-50 uppercase tracking-wider font-bold">
                         {formatDate(article.isoDate)}
                     </div>
                 </button>
             {/each}
         {:else}
-            <div class="p-8 text-center text-gray-500">Loading...</div>
+            <div class="p-8 text-center text-o3-black-40">Loading...</div>
         {/if}
     </div>
 </div>
