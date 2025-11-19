@@ -1,0 +1,10 @@
+node_modules
+.DS_Store
+.svelte-kit
+build
+.env
+.env.*
+!.env.example
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

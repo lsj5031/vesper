@@ -1,0 +1,90 @@
+/* Write your global styles here, in PostCSS syntax */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-vesper-dark text-white font-body leading-relaxed antialiased;
+    background-color: #0f1419;
+  }
+  
+  /* Typography Overrides */
+  h1, h2, h3, h4, h5, .h1, .h2, .h3 { 
+      @apply font-headline font-bold tracking-tight text-white; 
+  }
+  
+  a { 
+      @apply text-vesper-ftPink hover:underline decoration-1 underline-offset-2 transition-colors; 
+  }
+  
+  /* Selection Color (FT Style) */
+  ::selection { 
+      background: #990f3d; 
+      color: white; 
+  }
+
+  /* Scrollbar styling for Webkit */
+  ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+      @apply bg-vesper-charcoal;
+  }
+  ::-webkit-scrollbar-thumb {
+      @apply bg-vesper-midgray rounded-full hover:bg-vesper-lightgray;
+  }
+}
+
+/* Vesper Theme Tokens for Skeleton */
+:root [data-theme='vesper'] {
+    --theme-font-family-heading: "Playfair Display", serif;
+    --theme-font-family-base: "IBM Plex Sans", sans-serif;
+    
+    --theme-rounded-base: 0px;
+    --theme-rounded-container: 0px;
+
+    /* Skeleton Specific Colors Mapped to FT Palette */
+    --color-surface-50: 31 42 51;   /* Charcoal */
+    --color-surface-100: 31 42 51;
+    --color-surface-200: 15 20 25;  /* Dark */
+    --color-surface-300: 51 61 71;  /* Midgray */
+    --color-surface-400: 152 167 185; /* Lightgray */
+    --color-surface-500: 255 255 255; /* White */
+    
+    /* Primary is the FT Pink */
+    --color-primary-500: 153 15 61; /* #990f3d */
+    
+    /* Secondary is the Salmon */
+    --color-secondary-500: 255 241 229; /* #fff1e5 */
+}
+
+.salmon-bg { background-color: #fff1e5; }
+.salmon-text { color: #990f3d; }
+
+/* Unread Badge: Salmon background, dark text */
+.badge-unread {
+    @apply bg-vesper-salmon text-vesper-dark text-[10px] px-1.5 py-0.5 rounded-sm font-bold uppercase tracking-wider border border-vesper-salmonDark;
+}
+
+/* Article Typography (Prose) */
+.prose-vesper {
+    @apply prose prose-invert max-w-none;
+    /* Headings */
+    @apply prose-headings:font-headline prose-headings:font-bold prose-headings:text-white;
+    /* Links */
+    @apply prose-a:text-vesper-ftPink prose-a:no-underline prose-a:border-b prose-a:border-vesper-ftPink/30 hover:prose-a:border-vesper-ftPink;
+    /* Body */
+    @apply text-lg leading-8 text-gray-300;
+    /* Blockquotes */
+    @apply prose-blockquote:border-l-vesper-ftPink prose-blockquote:bg-vesper-charcoal/50 prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic;
+}
+
+/* Divider utilities */
+.divider-v {
+    @apply border-r border-vesper-midgray h-full;
+}
+.divider-h {
+    @apply border-b border-vesper-midgray w-full;
+}
