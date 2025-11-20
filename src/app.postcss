@@ -12,17 +12,33 @@ html {
   --o3-brand: professional;
 }
 
+:root {
+  --vesper-surface: var(--o3-color-palette-black-90);
+  --vesper-panel: var(--o3-color-palette-black-80);
+  --vesper-border: var(--o3-color-palette-black-30);
+  --vesper-text: var(--o3-color-palette-white);
+  --vesper-muted: var(--o3-color-palette-black-30);
+}
+
+body[data-theme='vesper-light'] {
+  --vesper-surface: var(--o3-color-palette-paper);
+  --vesper-panel: var(--o3-color-palette-paper);
+  --vesper-border: var(--o3-color-palette-black-20);
+  --vesper-text: var(--o3-color-palette-black-90);
+  --vesper-muted: var(--o3-color-palette-black-60);
+}
+
 @layer base {
   body {
     @apply font-body leading-relaxed antialiased;
-    background-color: var(--o3-color-palette-black-90);
-    color: var(--o3-color-palette-white);
+    background-color: var(--vesper-surface);
+    color: var(--vesper-text);
   }
   
   /* Typography Overrides - keep custom fonts but use Origami sizing/weight */
   h1, h2, h3, h4, h5, .h1, .h2, .h3 { 
       @apply font-headline font-bold tracking-tight;
-      color: var(--o3-color-palette-white);
+      color: var(--vesper-text);
   }
   
   a { 
@@ -116,21 +132,26 @@ html {
 
 /* Article Typography (Prose) */
 .prose-vesper {
-    @apply prose prose-invert max-w-none;
+    @apply prose max-w-none;
     /* Headings */
     @apply prose-headings:font-headline prose-headings:font-bold;
-    color: var(--o3-color-palette-white);
+    color: var(--vesper-text);
     /* Links */
     --tw-prose-links: var(--o3-color-palette-teal);
-    --tw-prose-invert-links: var(--o3-color-palette-teal);
     @apply prose-a:no-underline prose-a:border-b;
     /* Body */
     @apply text-lg leading-8;
-    color: var(--o3-color-palette-black-10);
+    color: var(--vesper-text);
     /* Blockquotes */
     --tw-prose-quotes: var(--o3-color-palette-oxford);
     --tw-prose-quote-borders: var(--o3-color-palette-oxford);
     @apply prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:not-italic;
+}
+
+/* Dark mode specific prose styles */
+:where([data-theme='vesper-dark']) .prose-vesper {
+    @apply prose-invert;
+    --tw-prose-invert-links: var(--o3-color-palette-teal);
 }
 
 /* Divider utilities - Origami compliant */

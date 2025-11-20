@@ -27,3 +27,6 @@ export const userSettings = localStorageStore('vesper-settings', {
     layout: '3-panel' as '3-panel' | 'list-only',
     fontSize: 18,
 });
+
+// Theme (day/night)
+export const themeMode = localStorageStore<'dark' | 'light'>('vesper-theme-mode', 'dark');

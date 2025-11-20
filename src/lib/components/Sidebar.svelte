@@ -2,7 +2,7 @@
     import { onDestroy } from 'svelte';
     import { liveQuery } from 'dexie';
     import { db, type Feed } from '../db';
-    import { selectedFeedId, selectedArticleId, searchQuery, refreshProgress, userSettings, showSettings } from '../stores';
+    import { selectedFeedId, selectedArticleId, searchQuery, refreshProgress, userSettings, showSettings, themeMode } from '../stores';
     import { addNewFeed, refreshAllFeeds, syncFeed } from '../rss';
     
     // Live Queries
@@ -102,34 +102,55 @@
     }
     
     onDestroy(() => clearInterval(refreshTimer));
+
+    function toggleTheme() {
+        $themeMode = $themeMode === 'dark' ? 'light' : 'dark';
+    }
 </script>
 
-<div class="h-full flex flex-col bg-o3-black-90 border-r border-o3-black-30">
+<div 
+    class="h-full flex flex-col border-r border-o3-black-30"
+    style={`background:${$themeMode === 'dark' ? 'var(--o3-color-palette-black-90)' : 'var(--o3-color-palette-paper)'};color:${$themeMode === 'dark' ? 'var(--o3-color-palette-white)' : 'var(--o3-color-palette-black-90)'}`}
+>
     <!-- Header -->
     <div class="p-4 border-b border-o3-black-30">
-        <h1 class="text-2xl font-headline font-bold text-o3-white tracking-tight mb-1">Vesper</h1>
-        <p class="text-xs text-o3-black-50 uppercase tracking-widest">Where the day settles</p>
+        <h1 class={`text-2xl font-headline font-bold tracking-tight mb-1 ${$themeMode === 'dark' ? 'text-o3-white' : 'text-o3-black-90'}`}>Vesper</h1>
+        <p class={`text-xs uppercase tracking-widest ${$themeMode === 'dark' ? 'text-o3-black-50' : 'text-o3-black-70'}`}>Where the day settles</p>
     </div>
 
     <!-- Controls -->
-    <div class="p-4 space-y-2 border-b border-o3-black-30">
+    <div class="p-4 space-y-2" style={`border-bottom: 1px solid ${$themeMode === 'dark' ? 'var(--o3-color-palette-black-30)' : 'var(--o3-color-palette-black-10)'}`}>
         <!-- Search -->
-        <div class="relative">
-            <input 
-                type="text" 
-                bind:value={$searchQuery} 
-                placeholder="Search articles..." 
-                class="input bg-o3-black-80 border-none text-sm h-8 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal w-full pl-8"
-            />
-            <span class="absolute left-2 top-1.5 text-o3-black-50 text-xs">🔍</span>
-            {#if $searchQuery}
-                <button 
-                    class="absolute right-2 top-1.5 text-o3-black-50 hover:text-o3-white text-xs"
-                    on:click={() => $searchQuery = ''}
-                >
-                    ×
-                </button>
-            {/if}
+        <div class="flex gap-2 items-center">
+            <div class="relative flex-1">
+                <input 
+                    type="text" 
+                    bind:value={$searchQuery} 
+                    placeholder="Search articles..." 
+                    class={`input text-sm h-8 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal w-full pl-8 ${$themeMode === 'dark' ? 'bg-o3-black-80 border-none text-o3-paper' : 'bg-o3-white border border-o3-black-20 text-o3-black-90'}`}
+                />
+                <span 
+                    class="absolute left-2 top-1.5 w-4 h-4 bg-o3-black-50 opacity-80 pointer-events-none"
+                    style="
+                        -webkit-mask-image: var(--o3-icon-search);
+                        mask-image: var(--o3-icon-search);
+                        -webkit-mask-repeat: no-repeat;
+                        mask-repeat: no-repeat;
+                        -webkit-mask-size: contain;
+                        mask-size: contain;
+                    "
+                    aria-hidden="true"
+                ></span>
+            </div>
+            <button 
+                class="o3-button o3-button--secondary o3-button--small o3-button-icon o3-button-icon--cross"
+                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
+                on:click={() => $searchQuery = ''}
+                disabled={!$searchQuery}
+                aria-disabled={!$searchQuery}
+            >
+                Clear
+            </button>
         </div>
 
         <div class="divider-h border-o3-black-80 my-2"></div>
@@ -139,12 +160,12 @@
                 type="text" 
                 bind:value={newFeedUrl} 
                 placeholder="Feed URL..." 
-                class="input bg-o3-black-80 border-none text-sm h-8 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal w-full"
+                class={`input text-sm h-8 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal w-full ${$themeMode === 'dark' ? 'bg-o3-black-80 border-none text-o3-paper' : 'bg-o3-white border border-o3-black-20 text-o3-black-90'}`}
                 on:keydown={(e) => e.key === 'Enter' && handleAddFeed()}
             />
             <button 
                 class="o3-button o3-button--primary o3-button--small o3-button-icon o3-button-icon--plus o3-button-icon--icon-only"
-                data-o3-theme="inverse"
+                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
                 on:click={handleAddFeed}
                 title="Add Feed"
             >
@@ -166,7 +187,7 @@
             {:else}
                 <button 
                     class="flex-1 o3-button o3-button--secondary o3-button--small o3-button-icon o3-button-icon--refresh"
-                    data-o3-theme="inverse" 
+                    data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
                     on:click={handleRefreshAll}
                 >
                     Refresh All
@@ -174,15 +195,23 @@
             {/if}
             <button 
                 class="o3-button o3-button--secondary o3-button--small {isManaging ? 'o3-button--primary' : ''}" 
-                data-o3-theme="inverse"
+                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
                 on:click={() => isManaging = !isManaging}
                 title="Manage Feeds"
             >
                 {isManaging ? 'Done' : 'Manage'}
             </button>
             <button 
+                class="o3-button o3-button--secondary o3-button--small"
+                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
+                on:click={toggleTheme}
+                title="Toggle day/night"
+            >
+                {$themeMode === 'dark' ? 'Day' : 'Night'}
+            </button>
+            <button 
                 class="o3-button o3-button--secondary o3-button--small o3-button-icon o3-button-icon--settings o3-button-icon--icon-only"
-                data-o3-theme="inverse"
+                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
                 on:click={() => $showSettings = true}
                 title="Settings"
             >
@@ -196,13 +225,13 @@
         <!-- Special Filters -->
         <div class="space-y-0.5">
             <button 
-                class="w-full text-left px-3 py-1.5 text-sm font-medium {$selectedFeedId === 'all' ? 'text-o3-teal bg-o3-black-80' : 'text-o3-black-40 hover:bg-o3-black-80/50'}"
+                class={`w-full text-left px-3 py-1.5 text-sm font-medium ${$selectedFeedId === 'all' ? 'text-o3-teal ' + ($themeMode === 'dark' ? 'bg-o3-black-80' : 'bg-o3-black-10') : $themeMode === 'dark' ? 'text-o3-black-30 hover:bg-o3-black-80/50' : 'text-o3-black-80 hover:bg-o3-black-10'}`}
                 on:click={() => $selectedFeedId = 'all'}
             >
                 All Articles
             </button>
             <button 
-                class="w-full text-left px-3 py-1.5 text-sm font-medium {$selectedFeedId === 'starred' ? 'text-o3-teal bg-o3-black-80' : 'text-o3-black-40 hover:bg-o3-black-80/50'}"
+                class={`w-full text-left px-3 py-1.5 text-sm font-medium ${$selectedFeedId === 'starred' ? 'text-o3-teal ' + ($themeMode === 'dark' ? 'bg-o3-black-80' : 'bg-o3-black-10') : $themeMode === 'dark' ? 'text-o3-black-30 hover:bg-o3-black-80/50' : 'text-o3-black-80 hover:bg-o3-black-10'}`}
                 on:click={() => $selectedFeedId = 'starred'}
             >
                 Starred
@@ -214,14 +243,17 @@
         <!-- Folders -->
         {#each foldersList as folder}
             <div class="space-y-0.5">
-                <div class="px-3 py-1 text-xs font-bold text-o3-black-50 uppercase tracking-wider">
+                <div class={`px-3 py-1 text-xs font-bold uppercase tracking-wider ${$themeMode === 'dark' ? 'text-o3-black-50' : 'text-o3-black-70'}`}>
                     {folder.name}
                 </div>
                 {#each feedsList.filter(f => f.folderId === folder.id) as feed}
                     {@const isUpdating = $refreshProgress ? true : false}
-                    <div class="group flex items-center w-full {$selectedFeedId === feed.id ? 'bg-o3-black-80 border-l-2 border-o3-teal' : isUpdating ? 'bg-o3-black-80/50' : 'hover:bg-o3-black-80/30'}">
+                    {@const activeBg = $themeMode === 'dark' ? 'bg-o3-black-80' : 'bg-o3-black-10'}
+                    {@const hoverBg = $themeMode === 'dark' ? 'hover:bg-o3-black-80/30' : 'hover:bg-o3-black-10'}
+                    {@const loadingBg = $themeMode === 'dark' ? 'bg-o3-black-80/50' : 'bg-o3-black-5'}
+                    <div class={`group flex items-center w-full ${$selectedFeedId === feed.id ? (activeBg + ' border-l-2 ' + (feed.error ? 'border-o3-claret' : 'border-o3-teal')) : feed.error ? (activeBg + ' border-l-2 border-o3-claret') : isUpdating ? loadingBg : hoverBg}`}>
                         <button 
-                            class="flex-1 text-left px-3 py-1.5 text-sm truncate {$selectedFeedId === feed.id ? 'text-o3-white' : 'text-o3-black-40 group-hover:text-o3-white'}"
+                            class={`flex-1 text-left px-3 py-1.5 text-sm truncate ${$selectedFeedId === feed.id ? ($themeMode === 'dark' ? 'text-o3-white' : 'text-o3-black-90') : feed.error ? 'text-o3-claret' : $themeMode === 'dark' ? 'text-o3-black-30 group-hover:text-o3-white' : 'text-o3-black-80 group-hover:text-o3-black-90'}`}
                             on:click={() => selectFeed(feed.id)}
                         >
                             {feed.title}
@@ -238,7 +270,7 @@
                             {#if isManaging}
                                 <button 
                                     class="o3-button o3-button--ghost o3-button--small o3-button-icon o3-button-icon--cross o3-button-icon--icon-only"
-                                    data-o3-theme="inverse"
+                                    data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
                                     on:click={(e) => handleDeleteFeed(feed, e)}
                                     title="Delete Feed"
                                 >
@@ -247,7 +279,7 @@
                             {:else}
                                 <button 
                                     class="o3-button o3-button--ghost o3-button--small o3-button-icon o3-button-icon--refresh o3-button-icon--icon-only {feed.id && refreshingFeeds.has(feed.id) ? 'animate-spin' : ''}"
-                                    data-o3-theme="inverse"
+                                    data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
                                     on:click={(e) => handleRefreshFeed(feed, e)}
                                     disabled={feed.id ? refreshingFeeds.has(feed.id) : false}
                                     title="Refresh Feed"
@@ -263,14 +295,17 @@
 
         <!-- Uncategorized -->
         <div class="space-y-0.5">
-            <div class="px-3 py-1 text-xs font-bold text-o3-black-50 uppercase tracking-wider">
+            <div class="px-3 py-1 text-xs font-bold uppercase tracking-wider" class:text-o3-black-50={$themeMode === 'dark'} class:text-o3-black-70={$themeMode !== 'dark'}>
                 Feeds
             </div>
             {#each feedsList.filter(f => !f.folderId) as feed}
                 {@const isUpdating = $refreshProgress ? true : false}
-                <div class="group flex items-center w-full {$selectedFeedId === feed.id ? 'bg-o3-black-80 border-l-2 border-o3-teal' : isUpdating ? 'bg-o3-black-80/50' : 'hover:bg-o3-black-80/30'}">
+                {@const activeBg = $themeMode === 'dark' ? 'bg-o3-black-80' : 'bg-o3-black-10'}
+                {@const hoverBg = $themeMode === 'dark' ? 'hover:bg-o3-black-80/30' : 'hover:bg-o3-black-10'}
+                {@const loadingBg = $themeMode === 'dark' ? 'bg-o3-black-80/50' : 'bg-o3-black-5'}
+                <div class="group flex items-center w-full {$selectedFeedId === feed.id ? (activeBg + ' border-l-2 ' + (feed.error ? 'border-o3-claret' : 'border-o3-teal')) : feed.error ? (activeBg + ' border-l-2 border-o3-claret') : isUpdating ? loadingBg : hoverBg}">
                     <button 
-                        class="flex-1 text-left px-3 py-1.5 text-sm truncate {$selectedFeedId === feed.id ? 'text-o3-white' : 'text-o3-black-40 group-hover:text-o3-white'}"
+                        class="flex-1 text-left px-3 py-1.5 text-sm truncate {$selectedFeedId === feed.id ? ($themeMode === 'dark' ? 'text-o3-white' : 'text-o3-black-90') : feed.error ? 'text-o3-claret' : $themeMode === 'dark' ? 'text-o3-black-30 group-hover:text-o3-white' : 'text-o3-black-80 group-hover:text-o3-black-90'}"
                         on:click={() => selectFeed(feed.id)}
                     >
                         {feed.title}
@@ -287,7 +322,7 @@
                         {#if isManaging}
                             <button 
                                 class="o3-button o3-button--ghost o3-button--small o3-button-icon o3-button-icon--cross o3-button-icon--icon-only"
-                                data-o3-theme="inverse"
+                                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
                                 on:click={(e) => handleDeleteFeed(feed, e)}
                                 title="Delete Feed"
                             >
@@ -296,7 +331,7 @@
                         {:else}
                             <button 
                                 class="o3-button o3-button--ghost o3-button--small o3-button-icon o3-button-icon--refresh o3-button-icon--icon-only {feed.id && refreshingFeeds.has(feed.id) ? 'animate-spin' : ''}"
-                                data-o3-theme="inverse"
+                                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
                                 on:click={(e) => handleRefreshFeed(feed, e)}
                                 disabled={feed.id ? refreshingFeeds.has(feed.id) : false}
                                 title="Refresh Feed"

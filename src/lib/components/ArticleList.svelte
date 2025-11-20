@@ -1,14 +1,22 @@
 <script lang="ts">
     import { liveQuery } from 'dexie';
-    import { db, type Article, markArticlesAsRead, markArticlesAsUnread, markFeedAsRead } from '../db';
-    import { selectedFeedId, selectedArticleId, searchQuery, refreshProgress } from '../stores';
-    import { refreshAllFeeds } from '../rss';
+    import { onDestroy } from 'svelte';
+    import { db, type Article, type Feed, markArticlesAsRead, markArticlesAsUnread, markFeedAsRead } from '../db';
+    import { selectedFeedId, selectedArticleId, searchQuery, refreshProgress, themeMode } from '../stores';
+    import { refreshAllFeeds, syncFeed } from '../rss';
     import { formatDistanceToNow } from 'date-fns';
     import { tokenize } from '../search';
     
     let filterStatus: 'all' | 'unread' = 'all';
     let selectedIds = new Set<number>();
+    let selectedVisibleCount = 0;
+    let visibleIds = new Set<number>();
     let selectionMode = false;
+    let hasSelection = false;
+    let showActionMenu = false;
+    let isDark = true;
+
+    $: isDark = $themeMode === 'dark';
 
     // We need a reactive query that depends on $selectedFeedId and filterStatus
     let articlesStore: any;
@@ -66,11 +74,6 @@
                 collection = db.articles.orderBy('isoDate').reverse();
             } else if (fid === 'starred') {
                 collection = db.articles.where('starred').equals(1).reverse().sortBy('isoDate');
-                // sortBy returns array, so we handle it differently if we need to filter further
-                // But Dexie collections are chainable until toArray/sortBy
-                // 'starred' index is simple. 
-                // If we want to filter by read status on top of starred, we might need to filter in memory or use compound index.
-                // For simplicity, let's filter in memory for 'starred' + 'unread' if needed, or just use simple logic.
             } else if (typeof fid === 'number') {
                 collection = db.articles.where('feedId').equals(fid).reverse().sortBy('isoDate');
             }
@@ -81,12 +84,6 @@
             if (fid === 'all') {
                  results = await (collection as any).limit(200).toArray();
             } else if (fid === 'starred') {
-                 // collection is a Promise<Article[]> here because of sortBy above?
-                 // Wait, db.articles.where('starred').equals(1) returns Collection.
-                 // .reverse() returns Collection.
-                 // .sortBy('isoDate') returns Promise<Article[]>.
-                 // So we can't chain .filter() on it as a DB query easily without compound index.
-                 // Let's re-do the logic to be cleaner.
                  results = await db.articles.where('starred').equals(1).reverse().sortBy('isoDate');
             } else if (typeof fid === 'number') {
                  results = await db.articles.where('feedId').equals(fid).reverse().sortBy('isoDate');
@@ -101,6 +98,47 @@
         });
     }
     
+    // Feed Error Handling
+    let currentFeed: Feed | undefined;
+    let stopCurrentFeed: (() => void) | undefined;
+
+    $: {
+        const fid = $selectedFeedId;
+        stopCurrentFeed?.();
+        if (typeof fid === 'number') {
+            const subscription = liveQuery(() => db.feeds.get(fid)).subscribe((value) => {
+                currentFeed = value;
+            });
+            stopCurrentFeed = () => subscription.unsubscribe();
+        } else {
+            currentFeed = undefined;
+            stopCurrentFeed = undefined;
+        }
+    }
+
+    onDestroy(() => {
+        stopCurrentFeed?.();
+    });
+
+    async function deleteCurrentFeed() {
+        if (!currentFeed?.id) return;
+        if (!confirm(`Delete "${currentFeed.title}"? This action cannot be undone.`)) return;
+        
+        const id = currentFeed.id;
+        await db.feeds.delete(id);
+        await db.articles.where('feedId').equals(id).delete();
+        $selectedFeedId = 'all';
+    }
+    
+    async function retryCurrentFeed() {
+        if (!currentFeed?.id) return;
+        try {
+            await syncFeed(currentFeed, 50, true);
+        } catch (e) {
+            console.error('Retry failed', e);
+        }
+    }
+
     // Helper for date
     const formatDate = (iso: string) => {
         try {
@@ -110,10 +148,30 @@
         }
     }
 
+    $: {
+        const articles: Article[] = $articlesStore || [];
+        visibleIds = new Set(articles.map((a) => a.id).filter((id): id is number => id !== undefined));
+
+        const pruned = new Set(Array.from(selectedIds).filter((id) => visibleIds.has(id)));
+        if (pruned.size !== selectedIds.size) {
+            selectedIds = pruned;
+        }
+
+        selectedVisibleCount = pruned.size;
+    }
+
+    $: hasSelection = selectedVisibleCount > 0;
+    $: totalVisible = visibleIds.size;
+    $: allVisibleSelected = totalVisible > 0 && selectedVisibleCount === totalVisible;
+
     function selectArticle(id: number | undefined) {
         if (id !== undefined) {
             $selectedArticleId = id;
         }
+    }
+
+    function commitSelectionChange() {
+        selectedIds = new Set(selectedIds);
     }
 
     function toggleSelection(id: number | undefined) {
@@ -123,28 +181,34 @@
         } else {
             selectedIds.add(id);
         }
-        selectedIds = selectedIds; // Trigger reactivity
+        commitSelectionChange();
     }
 
     function toggleSelectAll() {
         const articles: Article[] = $articlesStore || [];
-        if (selectedIds.size === articles.length) {
-            selectedIds.clear();
+        if (selectedVisibleCount === articles.length) {
+            clearSelection();
         } else {
             selectedIds = new Set(articles.map(a => a.id).filter((id): id is number => id !== undefined));
         }
     }
 
+    function clearSelection() {
+        if (selectedIds.size === 0) return;
+        selectedIds.clear();
+        commitSelectionChange();
+    }
+
     async function markSelectedRead() {
         if (selectedIds.size === 0) return;
         await markArticlesAsRead(Array.from(selectedIds));
-        selectedIds.clear();
+        clearSelection();
     }
 
     async function markSelectedUnread() {
         if (selectedIds.size === 0) return;
         await markArticlesAsUnread(Array.from(selectedIds));
-        selectedIds.clear();
+        clearSelection();
     }
 
     async function markAllRead() {
@@ -225,132 +289,278 @@
             }
         }
     }
+
+    function handleWindowClick(event: MouseEvent) {
+        const target = event.target as HTMLElement | null;
+        if (!target) return;
+        if (showActionMenu && !target.closest('#article-actions-menu')) {
+            showActionMenu = false;
+        }
+    }
 </script>
 
-<svelte:window on:keydown={handleListKeydown} />
+<svelte:window on:keydown={handleListKeydown} on:click={handleWindowClick} />
 
-<div class="h-full flex flex-col bg-o3-black-90">
-    <!-- Toolbar -->
-    <div class="h-14 border-b border-o3-black-30 flex items-center px-4 justify-between sticky top-0 bg-o3-black-90 z-10 gap-4 group">
-        <div class="flex items-center gap-2 min-w-0 flex-1">
-            <span class="text-xs font-bold uppercase tracking-wider text-o3-black-50 truncate">
-                {#if $selectedFeedId === 'all'}All Articles
-                {:else if $selectedFeedId === 'starred'}Starred
-                {:else}Feed Articles{/if}
-                {#if selectedIds.size > 0}
-                    <span class="ml-2 text-o3-teal">({selectedIds.size} selected)</span>
-                {/if}
-            </span>
+<div 
+    class="h-full flex flex-col"
+    style={`background:${$themeMode === 'dark' ? 'var(--o3-color-palette-black-90)' : 'var(--o3-color-palette-paper)'};color:${$themeMode === 'dark' ? 'var(--o3-color-palette-white)' : 'var(--o3-color-palette-black-90)'}`}
+>
+    {#if currentFeed?.error}
+        <div class="bg-o3-claret text-white px-4 py-3 flex flex-col gap-2 shrink-0 border-b border-o3-black-30">
+            <div class="flex items-start gap-2">
+                <span class="text-xl font-bold">!</span>
+                <div class="flex-1 min-w-0">
+                    <h3 class="font-bold text-sm uppercase tracking-wider">Feed Error</h3>
+                    <p class="text-sm opacity-90 break-words">{currentFeed.error}</p>
+                </div>
+            </div>
+            <div class="flex gap-2 pl-6">
+                <button 
+                    class="px-3 py-1 bg-white text-o3-claret text-xs font-bold uppercase tracking-wider hover:bg-o3-white"
+                    on:click={retryCurrentFeed}
+                >
+                    Retry
+                </button>
+                <button 
+                    class="px-3 py-1 bg-o3-black-20 text-white text-xs font-bold uppercase tracking-wider hover:bg-o3-black-40" 
+                    on:click={deleteCurrentFeed}
+                >
+                    Remove Feed
+                </button>
+            </div>
         </div>
+    {/if}
 
-        <div class="flex items-center gap-2 flex-shrink-0">
-            {#if selectionMode && selectedIds.size > 0}
-                <button 
-                    class="o3-button o3-button--primary o3-button--small o3-button-icon o3-button-icon--tick"
-                    data-o3-theme="inverse"
-                    on:click={markSelectedRead}
-                    title="Mark selected as read"
-                >
-                    Read
-                </button>
-                <button 
-                    class="o3-button o3-button--secondary o3-button--small"
-                    data-o3-theme="inverse"
-                    on:click={markSelectedUnread}
-                    title="Mark selected as unread"
-                >
-                    Unread
-                </button>
-                <button 
-                    class="o3-button o3-button--ghost o3-button--small o3-button-icon o3-button-icon--cross"
-                    data-o3-theme="inverse"
-                    on:click={() => selectedIds.clear()}
-                    title="Clear selection"
-                >
-                    Clear
-                </button>
-            {/if}
-            <select 
-                bind:value={filterStatus}
-                class="bg-o3-black-80 text-o3-paper text-xs border-none py-1 pl-2 pr-6 rounded-none focus:ring-1 focus:ring-o3-teal cursor-pointer"
-                aria-label="Filter articles"
-            >
-                <option value="all">All</option>
-                <option value="unread">Unread</option>
-            </select>
-            
-            <button 
-                class="o3-button o3-button--small {selectionMode ? 'o3-button--primary o3-button-icon o3-button-icon--tick' : 'o3-button--secondary o3-button-icon o3-button-icon--edit'}"
-                data-o3-theme="inverse"
-                on:click={() => {
-                    selectionMode = !selectionMode;
-                    if (!selectionMode) selectedIds.clear();
-                }}
-                title={selectionMode ? 'Exit selection mode' : 'Enter selection mode'}
-            >
-                {selectionMode ? 'Done' : 'Select'}
-            </button>
-            
-            {#if !selectionMode}
-                <button 
-                    class="o3-button o3-button--secondary o3-button--small o3-button-icon o3-button-icon--tick"
-                    data-o3-theme="inverse"
-                    on:click={markAllRead}
-                    title="Mark all visible as read"
-                >
-                    All
-                </button>
-                <button 
-                    class="o3-button o3-button--secondary o3-button--small"
-                    data-o3-theme="inverse"
-                    on:click={markAllUnread}
-                    title="Mark all visible as unread"
-                >
-                    All Unread
-                </button>
-                {#if typeof $selectedFeedId === 'number'}
+    <!-- Toolbar -->
+    <div class="px-4 py-3 sticky top-0 z-10" style={`background:${isDark ? 'var(--o3-color-palette-black-90)' : 'var(--o3-color-palette-paper)'};border-bottom: 1px solid ${isDark ? 'var(--o3-color-palette-black-30)' : 'var(--o3-color-palette-black-10)'}`}>
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xs font-bold uppercase tracking-wider truncate" class:text-o3-black-40={isDark} class:text-o3-black-70={!isDark}>
+                    {#if selectionMode}
+                        {selectedIds.size} Selected
+                    {:else if $selectedFeedId === 'all'}
+                        All Articles
+                    {:else if $selectedFeedId === 'starred'}
+                        Starred
+                    {:else}
+                        Feed Articles
+                    {/if}
+                </span>
+            </div>
+
+            <div class="flex items-center gap-3 flex-wrap justify-end">
+                <!-- Filter Buttons -->
+                <div class="flex rounded-full overflow-hidden text-xs font-semibold" class:border={isDark} class:border-o3-black-60={isDark} style={isDark ? 'background: rgba(0, 0, 0, 0.25)' : 'background: rgb(255, 255, 255); border: 1px solid var(--o3-color-palette-black-10)'}>
                     <button 
-                        class="o3-button o3-button--secondary o3-button--small o3-button-icon o3-button-icon--tick"
-                        data-o3-theme="inverse"
-                        on:click={markFeedRead}
-                        title="Mark entire feed as read"
+                        class="px-4 py-1.5 uppercase tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-o3-teal"
+                        class:bg-o3-teal={filterStatus === 'all'}
+                        class:text-o3-black-90={filterStatus === 'all'}
+                        class:text-o3-black-40={filterStatus !== 'all' && isDark}
+                        class:text-o3-black-60={filterStatus !== 'all' && !isDark}
+                        on:click={() => filterStatus = 'all'}
+                        aria-pressed={filterStatus === 'all'}
+                        aria-label="Show all articles"
                     >
-                        Feed
+                        All
                     </button>
-                {/if}
-            {/if}
+                    <div class="w-px" class:bg-o3-black-60={isDark} style={!isDark ? 'background: var(--o3-color-palette-black-10)' : ''}></div>
+                    <button 
+                        class="px-4 py-1.5 uppercase tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-o3-teal"
+                        class:bg-o3-teal={filterStatus === 'unread'}
+                        class:text-o3-black-90={filterStatus === 'unread'}
+                        class:text-o3-black-40={filterStatus !== 'unread' && isDark}
+                        class:text-o3-black-60={filterStatus !== 'unread' && !isDark}
+                        on:click={() => filterStatus = 'unread'}
+                        aria-pressed={filterStatus === 'unread'}
+                        aria-label="Show unread articles"
+                    >
+                        Unread
+                    </button>
+                </div>
+
+                <!-- Batch Mode Toggle & Actions Menu -->
+                <div class="flex items-center gap-2">
+                    <button 
+                        class="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-all rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-o3-teal"
+                        class:bg-o3-teal={selectionMode}
+                        class:text-o3-black-90={selectionMode}
+                        class:border={!selectionMode}
+                        class:border-o3-teal={!selectionMode}
+                        class:text-o3-teal={!selectionMode}
+                        style={!selectionMode ? (isDark ? 'border-opacity: 0.4; background: rgba(17, 153, 142, 0.05)' : 'border-opacity: 0.3; background: rgba(17, 153, 142, 0.03)') : ''}
+                        on:click={() => {
+                            selectionMode = !selectionMode;
+                            if (!selectionMode) {
+                                clearSelection();
+                            }
+                        }}
+                        title={selectionMode ? 'Exit selection mode' : 'Enter selection mode'}
+                    >
+                        {selectionMode ? 'Done' : 'Batch'}
+                    </button>
+
+                    <div id="article-actions-menu" class="relative">
+                    <button
+                        class="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors rounded text-o3-black-40 hover:text-o3-black-60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-o3-black-50"
+                        class:hover:text-o3-black-50={isDark}
+                        on:click={() => showActionMenu = !showActionMenu}
+                        aria-expanded={showActionMenu}
+                        aria-haspopup="menu"
+                        title="More actions"
+                    >
+                        Actions
+                    </button>
+                    {#if showActionMenu}
+                        <div class="absolute right-0 mt-2 w-52 border rounded overflow-hidden shadow-lg z-20" class:bg-o3-black-80={isDark} class:border-o3-black-40={isDark} class:bg-o3-white={!isDark} class:border-o3-black-10={!isDark}>
+                            <button 
+                                class="block w-full text-left px-4 py-2.5 text-sm transition"
+                                class:text-o3-paper={isDark}
+                                class:hover:bg-o3-black-70={isDark}
+                                class:text-o3-black-80={!isDark}
+                                class:hover:bg-o3-black-10={!isDark}
+                                on:click={async () => {
+                                    showActionMenu = false;
+                                    await markAllRead();
+                                }}
+                            >
+                                Mark visible as read
+                            </button>
+                            <button 
+                                class="block w-full text-left px-4 py-2.5 text-sm transition"
+                                class:text-o3-paper={isDark}
+                                class:hover:bg-o3-black-70={isDark}
+                                class:text-o3-black-80={!isDark}
+                                class:hover:bg-o3-black-10={!isDark}
+                                on:click={async () => {
+                                    showActionMenu = false;
+                                    await markAllUnread();
+                                }}
+                            >
+                                Mark visible as unread
+                            </button>
+                            {#if typeof $selectedFeedId === 'number'}
+                                <button 
+                                    class="block w-full text-left px-4 py-2.5 text-sm transition"
+                                    class:text-o3-paper={isDark}
+                                    class:hover:bg-o3-black-70={isDark}
+                                    class:text-o3-black-80={!isDark}
+                                    class:hover:bg-o3-black-10={!isDark}
+                                    on:click={async () => {
+                                        showActionMenu = false;
+                                        await markFeedRead();
+                                    }}
+                                >
+                                    Mark entire feed as read
+                                </button>
+                            {/if}
+                        </div>
+                    {/if}
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- List - flex-1 with min-h-0 enables overflow scrolling -->
-    <div class="flex-1 overflow-y-auto min-h-0">
-        {#if $articlesStore}
-            {#if selectionMode && selectedIds.size > 0}
-                <div class="sticky top-0 bg-o3-black-80 border-b border-o3-black-30 px-4 py-2">
-                    <button 
-                        class="text-xs text-o3-teal hover:text-o3-white"
-                        on:click={toggleSelectAll}
-                    >
-                        {selectedIds.size === $articlesStore.length ? 'Deselect All' : 'Select All'}
-                    </button>
+    <!-- Selection Mode Toolbar -->
+    {#if selectionMode}
+        <div class="px-4 py-3 z-10" style={`background:${isDark ? 'var(--o3-color-palette-black-90)' : 'var(--o3-color-palette-paper)'};border-bottom: 1px solid ${isDark ? 'var(--o3-color-palette-black-30)' : 'var(--o3-color-palette-black-10)'}`}>
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <!-- Selection Info -->
+                <div class="flex items-baseline gap-3">
+                    <span class="text-2xl font-headline font-bold leading-none" class:text-o3-paper={isDark} class:text-o3-black-90={!isDark}>
+                        {selectedVisibleCount}
+                    </span>
+                    <span class="text-xs uppercase tracking-widest font-bold" class:text-o3-black-50={isDark} class:text-o3-black-60={!isDark}>
+                        selected of {totalVisible}
+                    </span>
                 </div>
-            {/if}
+                
+                <!-- Action Buttons -->
+                <div class="flex items-center gap-2 flex-wrap">
+                    <!-- Select All Toggle -->
+                    <button 
+                        class="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-o3-teal"
+                        class:border={true}
+                        class:border-o3-teal={true}
+                        class:text-o3-teal={true}
+                        style={isDark ? 'border-opacity: 0.4; background: rgba(17, 153, 142, 0.05)' : 'border-opacity: 0.3; background: rgba(17, 153, 142, 0.03)'}
+                        on:click={toggleSelectAll}
+                        title={allVisibleSelected ? 'Clear all selections' : 'Select everything in view'}
+                        disabled={totalVisible === 0}
+                        aria-disabled={totalVisible === 0}
+                    >
+                        {allVisibleSelected ? 'Deselect All' : 'Select All'}
+                    </button>
+                    
+                    <div class="flex gap-1">
+                        <!-- Mark Read (Primary) -->
+                        <button 
+                            class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-all rounded bg-o3-teal text-o3-black-90 hover:bg-o3-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-o3-black-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            on:click={markSelectedRead}
+                            disabled={!hasSelection}
+                            aria-disabled={!hasSelection}
+                            title="Mark selected as read"
+                        >
+                            Read
+                        </button>
+                        
+                        <!-- Mark Unread (Secondary) -->
+                        <button 
+                            class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors rounded border border-o3-teal text-o3-teal focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-o3-teal hover:bg-o3-teal/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={isDark ? 'border-opacity: 0.5' : 'border-opacity: 0.4'}
+                            on:click={markSelectedUnread}
+                            disabled={!hasSelection}
+                            aria-disabled={!hasSelection}
+                            title="Mark selected as unread"
+                        >
+                            Unread
+                        </button>
+                        
+                        <!-- Clear (Tertiary) -->
+                        <button 
+                            class="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors rounded text-o3-black-40 hover:text-o3-black-60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-o3-black-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            class:hover:text-o3-black-50={isDark}
+                            on:click={clearSelection}
+                            disabled={!hasSelection}
+                            aria-disabled={!hasSelection}
+                            title="Clear selection"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {/if}
+
+    <!-- List - flex-1 with min-h-0 enables overflow scrolling -->
+    <div class="flex-1 overflow-y-auto min-h-0 relative">
+        {#if $articlesStore}
             {#each $articlesStore as article (article.id)}
                 <div 
                     id={'article-list-item-' + article.id}
-                    class="relative w-full flex items-stretch border-b border-o3-black-30 hover:bg-o3-black-80 group transition-colors {$selectedArticleId === article.id ? 'bg-o3-black-80' : ''} {isArticleSelected(article.id) ? 'bg-o3-teal bg-opacity-20' : ''}"
+                    class="relative w-full flex items-stretch border-b border-o3-black-30 group transition-colors"
+                    class:bg-o3-black-80={$selectedArticleId === article.id && $themeMode === 'dark'}
+                    class:bg-o3-black-10={$selectedArticleId === article.id && $themeMode !== 'dark'}
+                    class:hover:bg-o3-black-80={$selectedArticleId !== article.id && $themeMode === 'dark'}
+                    class:hover:bg-o3-black-10={$selectedArticleId !== article.id && $themeMode !== 'dark'}
+                    class:selected-article={isArticleSelected(article.id)}
                 >
                     {#if selectionMode}
                         <button 
-                            class="flex-shrink-0 w-12 flex items-center justify-center border-r border-o3-black-30 hover:bg-o3-black-70"
+                            class="flex-shrink-0 w-12 flex items-center justify-center border-r border-o3-black-30 hover:bg-o3-black-70 transition-colors"
                             on:click={() => toggleSelection(article.id)}
                             aria-label="Toggle selection for: {article.title}"
+                            title={isArticleSelected(article.id) ? 'Deselect' : 'Select'}
                         >
-                            <input 
-                                type="checkbox" 
-                                checked={isArticleSelected(article.id)}
-                                on:change={() => toggleSelection(article.id)}
-                                class="cursor-pointer"
+                            <span
+                                class="h-3 w-3 rounded-full border transition-all"
+                                class:bg-o3-teal={isArticleSelected(article.id)}
+                                class:border-o3-teal={isArticleSelected(article.id)}
+                                class:border-o3-black-30={!isArticleSelected(article.id) && $themeMode === 'dark'}
+                                class:border-o3-black-60={!isArticleSelected(article.id) && $themeMode !== 'dark'}
+                                class:scale-110={isArticleSelected(article.id)}
+                                class:shadow={isArticleSelected(article.id)}
                             />
                         </button>
                     {/if}
@@ -367,15 +577,15 @@
                             {article.author || 'Unknown'}
                         </div>
                         
-                        <h3 class="font-headline font-bold text-lg leading-snug mb-2 text-o3-black-5 group-hover:text-o3-white">
+                        <h3 class="font-headline font-bold text-lg leading-snug mb-2" class:text-o3-paper={$themeMode === 'dark'} class:text-o3-black-90={$themeMode !== 'dark'} class:group-hover:text-o3-white={$themeMode === 'dark'}>
                             {article.title}
                         </h3>
                         
-                        <div class="text-sm text-o3-black-40 line-clamp-2 mb-2 font-body leading-relaxed">
+                        <div class="text-sm line-clamp-2 mb-2 font-body leading-relaxed" class:text-o3-black-20={$themeMode === 'dark'} class:text-o3-black-70={$themeMode !== 'dark'}>
                             {article.snippet}
                         </div>
                         
-                        <div class="text-[10px] text-o3-black-50 uppercase tracking-wider font-bold">
+                        <div class="text-[10px] uppercase tracking-wider font-bold" class:text-o3-black-40={$themeMode === 'dark'} class:text-o3-black-70={$themeMode !== 'dark'}>
                             {formatDate(article.isoDate)}
                         </div>
                     </button>
@@ -403,5 +613,15 @@
         {:else}
             <div class="p-8 text-center text-o3-black-40">Loading...</div>
         {/if}
+
+
     </div>
 </div>
+
+<style>
+    :global(.selected-article) {
+        background: rgba(17, 153, 142, 0.18) !important;
+        border-color: rgba(17, 153, 142, 0.75) !important;
+        box-shadow: inset 0 0 0 1px rgba(17, 153, 142, 0.5) !important;
+    }
+</style>

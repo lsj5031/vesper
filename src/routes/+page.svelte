@@ -2,9 +2,10 @@
     import Sidebar from '$lib/components/Sidebar.svelte';
     import ArticleList from '$lib/components/ArticleList.svelte';
     import Reader from '$lib/components/Reader.svelte';
+    import { themeMode } from '$lib/stores';
 </script>
 
-<div id="vesper-layout" class="grid h-screen w-screen overflow-hidden bg-o3-black-90">
+<div id="vesper-layout" class="grid h-screen w-screen overflow-hidden" style={`background:${$themeMode === 'dark' ? 'var(--o3-color-palette-black-90)' : 'var(--o3-color-palette-paper)'}`}>
     <!-- Left Panel: Navigation (280px fixed) -->
     <aside class="hidden md:block border-r border-o3-black-30 h-screen" style="grid-column: 1; width: 280px;">
         <Sidebar />
@@ -16,7 +17,7 @@
     </section>
 
     <!-- Right Panel: Reader (Fluid) -->
-    <main class="bg-o3-black-90 h-screen" style="grid-column: 3;">
+    <main class="h-screen" style={`background:${$themeMode === 'dark' ? 'var(--o3-color-palette-black-90)' : 'var(--o3-color-palette-white)'};grid-column: 3;`}>
         <Reader />
     </main>
 </div>
