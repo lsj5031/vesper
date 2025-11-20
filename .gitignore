@@ -5,7 +5,6 @@ build
 .env
 .env.*
 !.env.example
-package-lock.json
 pnpm-lock.yaml
 yarn.lock
 *.log
