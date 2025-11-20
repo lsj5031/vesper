@@ -34,6 +34,11 @@ export default {
                     'black-20': 'var(--o3-color-palette-black-20)',
                     'black-10': 'var(--o3-color-palette-black-10)',
                     'black-5': 'var(--o3-color-palette-black-5)',
+                    'white-80': 'var(--o3-color-palette-white-80)',
+                    'white-60': 'var(--o3-color-palette-white-60)',
+                    'white-40': 'var(--o3-color-palette-white-40)',
+                    'white-20': 'var(--o3-color-palette-white-20)',
+                    'white-10': 'var(--o3-color-palette-white-10)',
                 }
             },
             fontFamily: {

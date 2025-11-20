@@ -68,14 +68,14 @@
 <div 
     bind:this={scrollContainer}
     class="h-full overflow-y-auto min-h-0 relative outline-none"
-    style={`background:${$themeMode === 'dark' ? 'var(--o3-color-palette-black-90)' : 'var(--o3-color-palette-paper)'};color:${$themeMode === 'dark' ? 'var(--o3-color-palette-white)' : 'var(--o3-color-palette-black-90)'};`}
+    style={`background: var(--vesper-surface);color:${$themeMode === 'dark' ? 'var(--o3-color-palette-black-20)' : 'var(--o3-color-palette-black-90)'};`}
     role="main"
     aria-label="Article Content"
 >
     {#if $articleStore}
-        <article class="max-w-3xl mx-auto px-8 py-12">
+        <article class="w-full px-8 py-12 border" class:bg-o3-black-80={$themeMode === 'dark'} class:bg-o3-paper={$themeMode !== 'dark'} class:border-o3-black-30={$themeMode === 'dark'} class:border-o3-black-10={$themeMode !== 'dark'}>
             <!-- Header -->
-            <header class="mb-10 border-b border-o3-black-30 pb-8">
+            <header class="mb-10 pb-8 border-b" class:border-o3-black-30={$themeMode === 'dark'} class:border-o3-black-20={$themeMode !== 'dark'}>
                 <div class="flex justify-between items-start mb-6">
                      <span class="bg-o3-paper text-o3-teal px-2 py-1 text-xs font-bold uppercase tracking-widest">
                         News
@@ -84,7 +84,7 @@
                         {#if $articleStore.starred}
                             <span class="text-o3-claret text-2xl">★</span>
                         {:else}
-                            <span class="text-o3-black-50 text-2xl hover:text-o3-white">☆</span>
+                            <span class="text-2xl transition-colors" class:text-o3-white-60={$themeMode === 'dark'} class:text-o3-black-50={$themeMode !== 'dark'} class:hover:text-o3-white={$themeMode === 'dark'} class:hover:text-o3-black-90={$themeMode !== 'dark'}>☆</span>
                         {/if}
                     </button>
                 </div>
@@ -93,7 +93,7 @@
                     {$articleStore.title}
                 </h1>
 
-                <div class="flex items-center justify-between text-sm font-bold uppercase tracking-widest" class:text-o3-black-50={$themeMode === 'dark'} class:text-o3-black-60={$themeMode !== 'dark'}>
+                <div class="flex items-center justify-between text-sm font-bold uppercase tracking-widest" class:text-o3-black-40={$themeMode === 'dark'} class:text-o3-black-70={$themeMode !== 'dark'}>
                     <span>By <span class="text-o3-teal border-b border-o3-teal">{$articleStore.author || 'Unknown'}</span></span>
                     <time>{format(new Date($articleStore.isoDate), 'MMMM d, yyyy')}</time>
                 </div>
@@ -110,7 +110,7 @@
                 {@html $articleStore.content}
             </div>
 
-            <footer class="mt-20 pt-10 border-t border-o3-black-30 text-center" class:text-o3-black-50={$themeMode === 'dark'} class:text-o3-black-60={$themeMode !== 'dark'}>
+            <footer class="mt-20 pt-10 text-center border-t" class:border-o3-black-30={$themeMode === 'dark'} class:border-o3-black-20={$themeMode !== 'dark'} class:text-o3-black-40={$themeMode === 'dark'} class:text-o3-black-70={$themeMode !== 'dark'}>
                  <p class="italic font-headline">End of Article</p>
             </footer>
         </article>

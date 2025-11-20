@@ -10,10 +10,17 @@
     let isDark: boolean;
     $: isDark = $themeMode === 'dark';
 
-    function handleFileSelect(e: Event) {
+    async function handleFileSelect(e: Event) {
          const input = e.target as HTMLInputElement;
          if (input.files?.length) {
-             importOPML(input.files[0]);
+            const file = input.files[0];
+            try {
+                await importOPML(file);
+                input.value = '';
+                close();
+            } catch (err) {
+                console.error('Failed to import OPML', err);
+            }
          }
      }
 
