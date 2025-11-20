@@ -8,6 +8,20 @@
     // Live Queries
     const folders = liveQuery(() => db.folders.toArray());
     const feeds = liveQuery(() => db.feeds.toArray());
+    const unreadCounts = liveQuery(async () => {
+        const unread = await db.articles.where('read').equals(0).toArray();
+        const counts: Record<string | number, number> = { all: unread.length };
+        
+        unread.forEach(a => {
+            if (a.feedId) {
+                counts[a.feedId] = (counts[a.feedId] || 0) + 1;
+            }
+            if (a.starred) {
+                counts['starred'] = (counts['starred'] || 0) + 1;
+            }
+        });
+        return counts;
+    });
     
     // Derived state (naive grouping for simple template)
     $: feedsList = $feeds || [];
@@ -225,16 +239,22 @@
         <!-- Special Filters -->
         <div class="space-y-0.5">
             <button 
-                class={`w-full text-left px-3 py-1.5 text-sm font-medium ${$selectedFeedId === 'all' ? 'text-o3-teal ' + ($themeMode === 'dark' ? 'bg-o3-black-80' : 'bg-o3-black-10') : $themeMode === 'dark' ? 'text-o3-black-30 hover:bg-o3-black-80/50' : 'text-o3-black-80 hover:bg-o3-black-10'}`}
+                class={`w-full text-left px-3 py-1.5 text-sm font-medium flex justify-between items-center ${$selectedFeedId === 'all' ? 'text-o3-teal ' + ($themeMode === 'dark' ? 'bg-o3-black-80' : 'bg-o3-black-10') : $themeMode === 'dark' ? 'text-o3-black-30 hover:bg-o3-black-80/50' : 'text-o3-black-80 hover:bg-o3-black-10'}`}
                 on:click={() => $selectedFeedId = 'all'}
             >
-                All Articles
+                <span>All Articles</span>
+                {#if $unreadCounts?.all}
+                    <span class="text-xs opacity-80">{$unreadCounts.all}</span>
+                {/if}
             </button>
             <button 
-                class={`w-full text-left px-3 py-1.5 text-sm font-medium ${$selectedFeedId === 'starred' ? 'text-o3-teal ' + ($themeMode === 'dark' ? 'bg-o3-black-80' : 'bg-o3-black-10') : $themeMode === 'dark' ? 'text-o3-black-30 hover:bg-o3-black-80/50' : 'text-o3-black-80 hover:bg-o3-black-10'}`}
+                class={`w-full text-left px-3 py-1.5 text-sm font-medium flex justify-between items-center ${$selectedFeedId === 'starred' ? 'text-o3-teal ' + ($themeMode === 'dark' ? 'bg-o3-black-80' : 'bg-o3-black-10') : $themeMode === 'dark' ? 'text-o3-black-30 hover:bg-o3-black-80/50' : 'text-o3-black-80 hover:bg-o3-black-10'}`}
                 on:click={() => $selectedFeedId = 'starred'}
             >
-                Starred
+                <span>Starred</span>
+                {#if $unreadCounts?.starred}
+                    <span class="text-xs opacity-80">{$unreadCounts.starred}</span>
+                {/if}
             </button>
         </div>
 
@@ -253,13 +273,18 @@
                     {@const loadingBg = $themeMode === 'dark' ? 'bg-o3-black-80/50' : 'bg-o3-black-5'}
                     <div class={`group flex items-center w-full ${$selectedFeedId === feed.id ? (activeBg + ' border-l-2 ' + (feed.error ? 'border-o3-claret' : 'border-o3-teal')) : feed.error ? (activeBg + ' border-l-2 border-o3-claret') : isUpdating ? loadingBg : hoverBg}`}>
                         <button 
-                            class={`flex-1 text-left px-3 py-1.5 text-sm truncate ${$selectedFeedId === feed.id ? ($themeMode === 'dark' ? 'text-o3-white' : 'text-o3-black-90') : feed.error ? 'text-o3-claret' : $themeMode === 'dark' ? 'text-o3-black-30 group-hover:text-o3-white' : 'text-o3-black-80 group-hover:text-o3-black-90'}`}
+                            class={`flex-1 text-left px-3 py-1.5 text-sm flex justify-between items-center gap-2 min-w-0 ${$selectedFeedId === feed.id ? ($themeMode === 'dark' ? 'text-o3-white' : 'text-o3-black-90') : feed.error ? 'text-o3-claret' : $themeMode === 'dark' ? 'text-o3-black-30 group-hover:text-o3-white' : 'text-o3-black-80 group-hover:text-o3-black-90'}`}
                             on:click={() => selectFeed(feed.id)}
                         >
-                            {feed.title}
-                            {#if isUpdating}
-                                <span class="inline-block ml-1 text-o3-teal animate-pulse">⟳</span>
-                            {/if}
+                            <span class="truncate">{feed.title}</span>
+                            <span class="flex items-center gap-1 shrink-0">
+                                {#if feed.id != null && $unreadCounts?.[feed.id]}
+                                    <span class="text-xs opacity-70">{$unreadCounts[feed.id]}</span>
+                                {/if}
+                                {#if isUpdating}
+                                    <span class="text-o3-teal animate-pulse">⟳</span>
+                                {/if}
+                            </span>
                         </button>
                         
                         <div class="flex items-center pr-2 gap-1">
@@ -305,13 +330,18 @@
                 {@const loadingBg = $themeMode === 'dark' ? 'bg-o3-black-80/50' : 'bg-o3-black-5'}
                 <div class="group flex items-center w-full {$selectedFeedId === feed.id ? (activeBg + ' border-l-2 ' + (feed.error ? 'border-o3-claret' : 'border-o3-teal')) : feed.error ? (activeBg + ' border-l-2 border-o3-claret') : isUpdating ? loadingBg : hoverBg}">
                     <button 
-                        class="flex-1 text-left px-3 py-1.5 text-sm truncate {$selectedFeedId === feed.id ? ($themeMode === 'dark' ? 'text-o3-white' : 'text-o3-black-90') : feed.error ? 'text-o3-claret' : $themeMode === 'dark' ? 'text-o3-black-30 group-hover:text-o3-white' : 'text-o3-black-80 group-hover:text-o3-black-90'}"
+                        class="flex-1 text-left px-3 py-1.5 text-sm flex justify-between items-center gap-2 min-w-0 {$selectedFeedId === feed.id ? ($themeMode === 'dark' ? 'text-o3-white' : 'text-o3-black-90') : feed.error ? 'text-o3-claret' : $themeMode === 'dark' ? 'text-o3-black-30 group-hover:text-o3-white' : 'text-o3-black-80 group-hover:text-o3-black-90'}"
                         on:click={() => selectFeed(feed.id)}
                     >
-                        {feed.title}
-                        {#if isUpdating}
-                            <span class="inline-block ml-1 text-o3-teal animate-pulse">⟳</span>
-                        {/if}
+                        <span class="truncate">{feed.title}</span>
+                        <span class="flex items-center gap-1 shrink-0">
+                            {#if feed.id != null && $unreadCounts?.[feed.id]}
+                                <span class="text-xs opacity-70">{$unreadCounts[feed.id]}</span>
+                            {/if}
+                            {#if isUpdating}
+                                <span class="text-o3-teal animate-pulse">⟳</span>
+                            {/if}
+                        </span>
                     </button>
 
                     <div class="flex items-center pr-2 gap-1">

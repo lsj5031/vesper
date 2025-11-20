@@ -546,27 +546,9 @@
                     class:hover:bg-o3-black-10={$selectedArticleId !== article.id && $themeMode !== 'dark'}
                     class:selected-article={isArticleSelected(article.id)}
                 >
-                    {#if selectionMode}
-                        <button 
-                            class="flex-shrink-0 w-12 flex items-center justify-center border-r border-o3-black-30 hover:bg-o3-black-70 transition-colors"
-                            on:click={() => toggleSelection(article.id)}
-                            aria-label="Toggle selection for: {article.title}"
-                            title={isArticleSelected(article.id) ? 'Deselect' : 'Select'}
-                        >
-                            <span
-                                class="h-3 w-3 rounded-full border transition-all"
-                                class:bg-o3-teal={isArticleSelected(article.id)}
-                                class:border-o3-teal={isArticleSelected(article.id)}
-                                class:border-o3-black-30={!isArticleSelected(article.id) && $themeMode === 'dark'}
-                                class:border-o3-black-60={!isArticleSelected(article.id) && $themeMode !== 'dark'}
-                                class:scale-110={isArticleSelected(article.id)}
-                                class:shadow={isArticleSelected(article.id)}
-                            />
-                        </button>
-                    {/if}
                     <button 
                         class="flex-1 text-left p-4 relative"
-                        on:click={() => selectArticle(article.id)}
+                        on:click={() => selectionMode ? toggleSelection(article.id) : selectArticle(article.id)}
                         aria-label="Read article: {article.title}"
                     >
                         {#if article.read === 0}
