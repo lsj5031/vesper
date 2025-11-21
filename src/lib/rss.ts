@@ -5,6 +5,11 @@ import { tokenize } from './search';
 import { refreshProgress } from './stores';
 
 const FEED_PROXY_BASE = (import.meta.env.VITE_FEED_PROXY_BASE || '').trim();
+const EXTERNAL_PROXY_FIRST = (import.meta.env.VITE_EXTERNAL_PROXY_FIRST || 'true').toLowerCase() !== 'false';
+const REFRESH_ALL_MIN_INTERVAL_MS = 3 * 60 * 1000;
+const inFlightFeedRequests = new Map<string, Promise<any>>();
+const feedFailureState = new Map<string, { count: number; nextAllowed: number }>();
+let lastRefreshAllAt = 0;
 
 // Initialize Parser with error-tolerant settings
 const parser = new Parser({
@@ -135,15 +140,26 @@ function buildFeedUrlVariants(url: string): string[] {
     return Array.from(variants);
 }
 
-function buildProxyUrls(targetUrl: string, forceRefresh: boolean): string[] {
+function buildProxyUrls(targetUrl: string, forceRefresh: boolean, preferExternalFirst: boolean): string[] {
     const params = `?url=${encodeURIComponent(targetUrl)}${forceRefresh ? '&refresh=true' : ''}`;
     const proxyBase = FEED_PROXY_BASE ? FEED_PROXY_BASE.replace(/\/+$/, '') : '';
+    const cloudflare = proxyBase ? `${proxyBase}/api/fetch-feed${params}` : '';
+    const allOrigins = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
 
-    const urls = new Set<string>();
-    urls.add(`${proxyBase}/api/fetch-feed${params}`);
-    urls.add(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
+    const urls: string[] = [];
+    const push = (u: string) => {
+        if (u && !urls.includes(u)) urls.push(u);
+    };
 
-    return Array.from(urls);
+    if (preferExternalFirst) {
+        push(allOrigins);
+        push(cloudflare);
+    } else {
+        push(cloudflare);
+        push(allOrigins);
+    }
+
+    return urls;
 }
 
 function looksLikeHtml(text: string, contentType: string | null): boolean {
@@ -152,68 +168,91 @@ function looksLikeHtml(text: string, contentType: string | null): boolean {
     return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
 }
 
-export async function fetchFeed(url: string, maxRetries = 2, forceRefresh = false) {
-    let lastError: any;
-    const candidates = buildFeedUrlVariants(url);
+export async function fetchFeed(
+    url: string,
+    maxRetries = 2,
+    forceRefresh = false,
+    preferExternalProxy = EXTERNAL_PROXY_FIRST
+) {
+    const cacheKey = normalizeFeedUrl(url);
 
-    for (const candidate of candidates) {
-        let candidateError: any;
-
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-                const proxyUrls = buildProxyUrls(candidate, forceRefresh);
-
-                for (const proxyUrl of proxyUrls) {
-                    try {
-                        const response = await fetch(proxyUrl);
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        
-                        let text = await response.text();
-                        if (looksLikeHtml(text, response.headers.get('content-type'))) {
-                            throw new Error('Proxy returned HTML (feed proxy likely missing in production)');
-                        }
-
-                        // Pre-process malformed XML before parsing
-                        text = cleanupMalformedXML(text);
-                        
-                        try {
-                            const feedData = await parser.parseString(text);
-                            return feedData;
-                        } catch (parseErr) {
-                            // Log detailed parse error and first 500 chars of cleaned XML
-                            console.warn(`Parse error for ${candidate}:`, parseErr);
-                            console.log(`Cleaned XML (first 500 chars): ${text.substring(0, 500)}`);
-                            throw parseErr;
-                        }
-                    } catch (proxyErr) {
-                        candidateError = proxyErr;
-                        lastError = proxyErr;
-                        continue;
-                    }
-                }
-            } catch (e) {
-                candidateError = e;
-                lastError = e;
-            }
-
-            const isRetryable = candidateError instanceof TypeError || (candidateError as any)?.message?.includes('HTTP');
-            if (attempt < maxRetries && isRetryable) {
-                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); // Exponential backoff
-                continue;
-            }
-            break;
-        }
-
-        if (!candidateError) break;
+    // De-duplicate in-flight requests for the same feed unless explicitly forcing
+    if (!forceRefresh && inFlightFeedRequests.has(cacheKey)) {
+        return inFlightFeedRequests.get(cacheKey)!;
     }
-    
-    console.error(`Failed to fetch ${url} after ${maxRetries + 1} attempts`, lastError);
-    throw lastError;
+
+    const task = (async () => {
+        let lastError: any;
+        const candidates = buildFeedUrlVariants(url);
+
+        for (const candidate of candidates) {
+            let candidateError: any;
+
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                const proxyUrls = buildProxyUrls(candidate, forceRefresh, preferExternalProxy && !forceRefresh);
+
+                try {
+                    for (const proxyUrl of proxyUrls) {
+                        try {
+                            const response = await fetch(proxyUrl);
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                            
+                            let text = await response.text();
+                            if (looksLikeHtml(text, response.headers.get('content-type'))) {
+                                throw new Error('Proxy returned HTML (feed proxy likely missing in production)');
+                            }
+
+                            // Pre-process malformed XML before parsing
+                            text = cleanupMalformedXML(text);
+                            
+                            try {
+                                const feedData = await parser.parseString(text);
+                                return feedData;
+                            } catch (parseErr) {
+                                // Log detailed parse error and first 500 chars of cleaned XML
+                                console.warn(`Parse error for ${candidate}:`, parseErr);
+                                console.log(`Cleaned XML (first 500 chars): ${text.substring(0, 500)}`);
+                                throw parseErr;
+                            }
+                        } catch (proxyErr) {
+                            candidateError = proxyErr;
+                            lastError = proxyErr;
+                            continue;
+                        }
+                    }
+                } catch (e) {
+                    candidateError = e;
+                    lastError = e;
+                }
+
+                const isRetryable = candidateError instanceof TypeError || (candidateError as any)?.message?.includes('HTTP');
+                if (attempt < maxRetries && isRetryable) {
+                    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); // Exponential backoff
+                    continue;
+                }
+                break;
+            }
+
+            if (!candidateError) break;
+        }
+        
+        console.error(`Failed to fetch ${url} after ${maxRetries + 1} attempts`, lastError);
+        throw lastError;
+    })();
+
+    inFlightFeedRequests.set(cacheKey, task);
+    try {
+        return await task;
+    } finally {
+        if (inFlightFeedRequests.get(cacheKey) === task) {
+            inFlightFeedRequests.delete(cacheKey);
+        }
+    }
 }
 
 export async function syncFeed(feed: Feed, unreadLimit = 50, forceRefresh = false) {
     try {
-        const data = await fetchFeed(feed.url, 2, forceRefresh);
+        const data = await fetchFeed(feed.url, 2, forceRefresh, !forceRefresh);
         
         // Update Feed Metadata
         await db.feeds.update(feed.id!, {
@@ -223,7 +262,7 @@ export async function syncFeed(feed: Feed, unreadLimit = 50, forceRefresh = fals
         });
 
         // Process all articles (convert to Article objects first)
-        const processedArticles: Article[] = data.items.map(item => {
+        const processedArticles: Article[] = data.items.map((item: any) => {
             const contentRaw = item['content:encoded'] || item.content || item.summary || '';
             const cleanContent = sanitize(contentRaw);
             const resolvedLink = resolveItemLink(item, feed);
@@ -389,7 +428,14 @@ export async function addNewFeed(url: string, folderId?: number) {
     return feedId;
 }
 
-export async function refreshAllFeeds() {
+export async function refreshAllFeeds(force = false) {
+    const now = Date.now();
+    if (!force && now - lastRefreshAllAt < REFRESH_ALL_MIN_INTERVAL_MS) {
+        console.info('Skipping refreshAllFeeds: throttled');
+        return [];
+    }
+
+    lastRefreshAllAt = now;
     const feeds = await db.feeds.toArray();
     const concurrency = 3;
     const results: PromiseSettledResult<{ unread: number; archived: number; total: number }>[] = [];
@@ -405,11 +451,24 @@ export async function refreshAllFeeds() {
             while (queue.length > 0) {
                 const feed = queue.shift();
                 if (!feed) return;
+
+                const key = normalizeFeedUrl(feed.url);
+                const failure = feedFailureState.get(key);
+                if (!force && failure && Date.now() < failure.nextAllowed) {
+                    completed++;
+                    refreshProgress.set({ completed, total: feeds.length });
+                    continue;
+                }
                 
                 try {
-                    const result = await syncFeed(feed);
+                    const result = await syncFeed(feed, 50, force);
+                    feedFailureState.delete(key);
                     results.push({ status: 'fulfilled', value: result });
                 } catch (err) {
+                    const prevCount = failure?.count ?? 0;
+                    const count = prevCount + 1;
+                    const backoffMs = Math.min(15 * 60 * 1000, 30_000 * Math.pow(2, count - 1));
+                    feedFailureState.set(key, { count, nextAllowed: Date.now() + backoffMs });
                     results.push({ status: 'rejected', reason: err });
                 }
                 
