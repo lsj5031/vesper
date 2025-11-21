@@ -4,6 +4,7 @@ import { db, type Feed, type Article } from './db';
 import { tokenize } from './search';
 import { refreshProgress } from './stores';
 
+const FEED_PROXY_BASE = (import.meta.env.VITE_FEED_PROXY_BASE || '').trim();
 
 // Initialize Parser with error-tolerant settings
 const parser = new Parser({
@@ -134,6 +135,23 @@ function buildFeedUrlVariants(url: string): string[] {
     return Array.from(variants);
 }
 
+function buildProxyUrls(targetUrl: string, forceRefresh: boolean): string[] {
+    const params = `?url=${encodeURIComponent(targetUrl)}${forceRefresh ? '&refresh=true' : ''}`;
+    const proxyBase = FEED_PROXY_BASE ? FEED_PROXY_BASE.replace(/\/+$/, '') : '';
+
+    const urls = new Set<string>();
+    urls.add(`${proxyBase}/api/fetch-feed${params}`);
+    urls.add(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
+
+    return Array.from(urls);
+}
+
+function looksLikeHtml(text: string, contentType: string | null): boolean {
+    if (contentType && contentType.toLowerCase().includes('text/html')) return true;
+    const trimmed = text.trimStart().toLowerCase();
+    return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
+}
+
 export async function fetchFeed(url: string, maxRetries = 2, forceRefresh = false) {
     let lastError: any;
     const candidates = buildFeedUrlVariants(url);
@@ -142,35 +160,48 @@ export async function fetchFeed(url: string, maxRetries = 2, forceRefresh = fals
         let candidateError: any;
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const proxyUrl = `/api/fetch-feed?url=${encodeURIComponent(candidate)}${forceRefresh ? '&refresh=true' : ''}`;
-
             try {
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                
-                let text = await response.text();
-                // Pre-process malformed XML before parsing
-                text = cleanupMalformedXML(text);
-                
-                try {
-                    const feedData = await parser.parseString(text);
-                    return feedData;
-                } catch (parseErr) {
-                    // Log detailed parse error and first 500 chars of cleaned XML
-                    console.warn(`Parse error for ${candidate}:`, parseErr);
-                    console.log(`Cleaned XML (first 500 chars): ${text.substring(0, 500)}`);
-                    throw parseErr;
+                const proxyUrls = buildProxyUrls(candidate, forceRefresh);
+
+                for (const proxyUrl of proxyUrls) {
+                    try {
+                        const response = await fetch(proxyUrl);
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        
+                        let text = await response.text();
+                        if (looksLikeHtml(text, response.headers.get('content-type'))) {
+                            throw new Error('Proxy returned HTML (feed proxy likely missing in production)');
+                        }
+
+                        // Pre-process malformed XML before parsing
+                        text = cleanupMalformedXML(text);
+                        
+                        try {
+                            const feedData = await parser.parseString(text);
+                            return feedData;
+                        } catch (parseErr) {
+                            // Log detailed parse error and first 500 chars of cleaned XML
+                            console.warn(`Parse error for ${candidate}:`, parseErr);
+                            console.log(`Cleaned XML (first 500 chars): ${text.substring(0, 500)}`);
+                            throw parseErr;
+                        }
+                    } catch (proxyErr) {
+                        candidateError = proxyErr;
+                        lastError = proxyErr;
+                        continue;
+                    }
                 }
             } catch (e) {
                 candidateError = e;
                 lastError = e;
-                const isRetryable = e instanceof TypeError || (e as any).message?.includes('HTTP');
-                if (attempt < maxRetries && isRetryable) {
-                    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); // Exponential backoff
-                    continue;
-                }
-                break;
             }
+
+            const isRetryable = candidateError instanceof TypeError || (candidateError as any)?.message?.includes('HTTP');
+            if (attempt < maxRetries && isRetryable) {
+                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); // Exponential backoff
+                continue;
+            }
+            break;
         }
 
         if (!candidateError) break;
