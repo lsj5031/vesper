@@ -23,6 +23,9 @@
     const feedsStore = liveQuery(() => db.feeds.toArray());
     let feedTitleMap: Record<number, string> = {};
     
+    const MAX_RESULTS = 300;
+    // TODO: paginate and/or add a compound index (e.g., [feedId+isoDate]) so larger result sets can stay ordered without client-side scans.
+
     $: {
         const fid = $selectedFeedId;
         const status = filterStatus;
@@ -39,9 +42,10 @@
                 // or just the first one. Let's use the first one for prefix matching support.
                 const firstToken = searchTokens[0];
                 
-                // Get candidates from DB using index
+                // Get candidates from DB using index (cap to avoid large in-memory scans)
                 let candidateIds = await db.articles
                     .where('words').startsWith(firstToken)
+                    .limit(MAX_RESULTS * 2) // allow some headroom before secondary filtering
                     .primaryKeys();
                 
                 // If we have multiple tokens, we must intersect in memory (or multiple queries)
@@ -68,16 +72,16 @@
                     results = results.filter(a => a.read === 0);
                 }
 
-                return results;
+                return results.slice(0, MAX_RESULTS);
             }
 
             // 2. Standard Navigation (No Search)
             if (fid === 'all') {
                 collection = db.articles.orderBy('isoDate').reverse();
             } else if (fid === 'starred') {
-                collection = db.articles.where('starred').equals(1).reverse().sortBy('isoDate');
+                collection = db.articles.orderBy('isoDate').reverse().filter(a => a.starred === 1);
             } else if (typeof fid === 'number') {
-                collection = db.articles.where('feedId').equals(fid).reverse().sortBy('isoDate');
+                collection = db.articles.orderBy('isoDate').reverse().filter(a => a.feedId === fid);
             }
 
             // Execute query
@@ -90,15 +94,15 @@
                         .orderBy('isoDate')
                         .reverse()
                         .filter(a => a.read === 0)
-                        .limit(200)
+                        .limit(MAX_RESULTS)
                         .toArray();
                  } else {
-                    results = await (collection as any).limit(200).toArray();
+                    results = await (collection as any).limit(MAX_RESULTS).toArray();
                  }
             } else if (fid === 'starred') {
-                 results = await db.articles.where('starred').equals(1).reverse().sortBy('isoDate');
+                 results = await (collection as any).limit(MAX_RESULTS).toArray();
             } else if (typeof fid === 'number') {
-                 results = await db.articles.where('feedId').equals(fid).reverse().sortBy('isoDate');
+                 results = await (collection as any).limit(MAX_RESULTS).toArray();
             }
 
             // Apply memory filter for read/unread if needed
@@ -106,7 +110,8 @@
                 results = results.filter(a => a.read === 0);
             }
 
-            return results;
+            // Cap all result sets to avoid heavy rerenders
+            return results.slice(0, MAX_RESULTS);
         });
     }
 
