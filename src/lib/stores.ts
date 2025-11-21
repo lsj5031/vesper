@@ -21,7 +21,7 @@ export const showSettings = writable<boolean>(false);
 // Settings Store (Synced with LocalStorage for immediate UI prefs, DB for deeper config)
 export const userSettings = localStorageStore('vesper-settings', {
     theme: 'vesper',
-    proxyUrl: 'https://api.allorigins.win/raw?url=', // Default proxy
+    proxyUrl: '', // Uses window.location.origin/api/fetch-feed by default
     refreshInterval: 15, // minutes
     showRead: false, // show read articles
     layout: '3-panel' as '3-panel' | 'list-only',

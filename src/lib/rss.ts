@@ -5,7 +5,6 @@ import { tokenize } from './search';
 import { refreshProgress } from './stores';
 
 const FEED_PROXY_BASE = (import.meta.env.VITE_FEED_PROXY_BASE || '').trim();
-const EXTERNAL_PROXY_FIRST = (import.meta.env.VITE_EXTERNAL_PROXY_FIRST || 'true').toLowerCase() !== 'false';
 const REFRESH_ALL_MIN_INTERVAL_MS = 3 * 60 * 1000;
 const inFlightFeedRequests = new Map<string, Promise<any>>();
 const feedFailureState = new Map<string, { count: number; nextAllowed: number }>();
@@ -140,26 +139,14 @@ function buildFeedUrlVariants(url: string): string[] {
     return Array.from(variants);
 }
 
-function buildProxyUrls(targetUrl: string, forceRefresh: boolean, preferExternalFirst: boolean): string[] {
+function buildProxyUrls(targetUrl: string, forceRefresh: boolean): string[] {
     const params = `?url=${encodeURIComponent(targetUrl)}${forceRefresh ? '&refresh=true' : ''}`;
-    const proxyBase = FEED_PROXY_BASE ? FEED_PROXY_BASE.replace(/\/+$/, '') : '';
-    const cloudflare = proxyBase ? `${proxyBase}/api/fetch-feed${params}` : '';
-    const allOrigins = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-
-    const urls: string[] = [];
-    const push = (u: string) => {
-        if (u && !urls.includes(u)) urls.push(u);
-    };
-
-    if (preferExternalFirst) {
-        push(allOrigins);
-        push(cloudflare);
-    } else {
-        push(cloudflare);
-        push(allOrigins);
-    }
-
-    return urls;
+    
+    // Use explicit FEED_PROXY_BASE or default to current origin's /api/fetch-feed
+    const proxyBase = FEED_PROXY_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
+    const url = proxyBase ? `${proxyBase.replace(/\/+$/, '')}/api/fetch-feed${params}` : '';
+    
+    return url ? [url] : [];
 }
 
 function looksLikeHtml(text: string, contentType: string | null): boolean {
@@ -171,8 +158,7 @@ function looksLikeHtml(text: string, contentType: string | null): boolean {
 export async function fetchFeed(
     url: string,
     maxRetries = 2,
-    forceRefresh = false,
-    preferExternalProxy = EXTERNAL_PROXY_FIRST
+    forceRefresh = false
 ) {
     const cacheKey = normalizeFeedUrl(url);
 
@@ -189,7 +175,7 @@ export async function fetchFeed(
             let candidateError: any;
 
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                const proxyUrls = buildProxyUrls(candidate, forceRefresh, preferExternalProxy && !forceRefresh);
+                const proxyUrls = buildProxyUrls(candidate, forceRefresh);
 
                 try {
                     for (const proxyUrl of proxyUrls) {
@@ -252,7 +238,7 @@ export async function fetchFeed(
 
 export async function syncFeed(feed: Feed, unreadLimit = 50, forceRefresh = false) {
     try {
-        const data = await fetchFeed(feed.url, 2, forceRefresh, !forceRefresh);
+        const data = await fetchFeed(feed.url, 2, forceRefresh);
         
         // Update Feed Metadata
         await db.feeds.update(feed.id!, {
