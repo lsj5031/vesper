@@ -18,8 +18,10 @@
 
     $: isDark = $themeMode === 'dark';
 
-    // We need a reactive query that depends on $selectedFeedId and filterStatus
+    // We need reactive queries for feeds and articles
     let articlesStore: any;
+    const feedsStore = liveQuery(() => db.feeds.toArray());
+    let feedTitleMap: Record<number, string> = {};
     
     $: {
         const fid = $selectedFeedId;
@@ -106,6 +108,16 @@
 
             return results;
         });
+    }
+
+    $: {
+        const feeds: Feed[] = $feedsStore || [];
+        feedTitleMap = feeds.reduce((acc, feed) => {
+            if (feed.id !== undefined) {
+                acc[feed.id] = feed.title;
+            }
+            return acc;
+        }, {} as Record<number, string>);
     }
     
     // Feed Error Handling
@@ -552,7 +564,7 @@
                         {/if}
                         
                         <div class="text-xs text-o3-teal mb-1 font-bold uppercase tracking-wide">
-                            {article.author || 'Unknown'}
+                            {feedTitleMap[article.feedId] || 'Unknown'}
                         </div>
                         
                         <h3 class="font-headline font-bold text-lg leading-snug mb-2" class:text-o3-paper={$themeMode === 'dark'} class:text-o3-black-90={$themeMode !== 'dark'} class:group-hover:text-o3-white={$themeMode === 'dark'}>
