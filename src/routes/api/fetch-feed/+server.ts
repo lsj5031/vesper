@@ -1,5 +1,31 @@
 import { error as httpError } from '@sveltejs/kit';
+import Parser from 'rss-parser';
 import type { RequestHandler } from './$types';
+
+// Some feeds ship malformed XML (unclosed CDATA, `<link/>http...` fragments, etc.)
+// This lightly normalizes common cases so the parser can recover.
+function cleanupMalformedXml(xml: string): string {
+    let cleaned = xml.replace(/<(link|guid)\s*\/>\s*(https?:\/\/[^\s<]+)/gi, '<$1>$2</$1>');
+    cleaned = cleaned.replace(/\]\]\s*>/g, ']]>'); // normalize spaced CDATA endings
+
+    const openCdata = (cleaned.match(/<!\[CDATA\[/g) || []).length;
+    const closeCdata = (cleaned.match(/\]\]>/g) || []).length;
+    if (openCdata > closeCdata) {
+        cleaned += ']]>'.repeat(openCdata - closeCdata);
+    }
+
+    return cleaned;
+}
+
+const parser = new Parser({
+    customFields: {
+        item: ['media:content', 'media:thumbnail', 'content:encoded', 'dc:creator'],
+    },
+    defaultRSS: 2.0,
+    xml2js: {
+        resolveNamespace: true
+    }
+});
 
 export const GET: RequestHandler = async ({ url }) => {
     const feedUrl = url.searchParams.get('url');
@@ -16,7 +42,6 @@ export const GET: RequestHandler = async ({ url }) => {
                 'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.9',
                 ...(refresh ? { 'Cache-Control': 'no-cache' } : {})
             },
-            // Add a timeout to prevent hanging
             signal: AbortSignal.timeout(10000)
         });
         
@@ -25,24 +50,29 @@ export const GET: RequestHandler = async ({ url }) => {
         }
         
         const text = await response.text();
+        let feedData;
+        try {
+            feedData = await parser.parseString(cleanupMalformedXml(text));
+        } catch (parseErr: any) {
+            console.error(`Parse error for ${feedUrl}:`, parseErr);
+            return httpError(502, `Failed to parse feed: ${parseErr.message}`);
+        }
         
         const headers: Record<string, string> = {
-            'Content-Type': 'application/xml; charset=utf-8',
+            'Content-Type': 'application/json; charset=utf-8',
             'Access-Control-Allow-Origin': '*'
         };
 
-        // Only cache if not explicitly refreshing
         if (!refresh) {
             headers['Cache-Control'] = 'max-age=3600';
         } else {
             headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
         }
 
-        return new Response(text, { headers });
+        return new Response(JSON.stringify(feedData), { headers });
     } catch (err: any) {
         console.error(`Failed to fetch feed ${feedUrl}:`, err.message);
         
-        // Distinguish between timeout and other errors
         if (err.name === 'AbortError') {
             return httpError(504, `Feed request timeout after 10 seconds`);
         }

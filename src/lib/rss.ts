@@ -1,4 +1,3 @@
-import Parser from 'rss-parser';
 import DOMPurify from 'dompurify';
 import { db, type Feed, type Article } from './db';
 import { tokenize } from './search';
@@ -9,32 +8,6 @@ const REFRESH_ALL_MIN_INTERVAL_MS = 3 * 60 * 1000;
 const inFlightFeedRequests = new Map<string, Promise<any>>();
 const feedFailureState = new Map<string, { count: number; nextAllowed: number }>();
 let lastRefreshAllAt = 0;
-
-// Initialize Parser with error-tolerant settings
-const parser = new Parser({
-    customFields: {
-        item: ['media:content', 'media:thumbnail', 'content:encoded', 'dc:creator'],
-    },
-    defaultRSS: 2.0,  // Assume RSS 2.0 if detection fails
-    xml2js: {
-        // Keep namespace-aware parsing but preserve original tag casing so pubDate/isoDate stay intact
-        resolveNamespace: true
-    }
-});
-
-// Pre-process malformed feeds to fix common issues
-function cleanupMalformedXML(xmlText: string): string {
-    // Merge adjacent CDATA sections (e.g., ]]><![CDATA[ -> join content)
-    xmlText = xmlText.replace(/\]\]>\s*<!\[CDATA\[/g, '');
-    
-    // Repair patterns like <link/>http://example.com</link> which break XML parsers
-    xmlText = xmlText.replace(/<(title|link|description|guid)\s*\/>([^<]+)/gi, '<$1>$2</$1>');
-
-    // Fix unclosed self-closing tags (br, img, hr, etc)
-    xmlText = xmlText.replace(/(<(?:br|img|hr|input|meta)[^>]*)(?<!\/)(>)/g, '$1/$2');
-    
-    return xmlText;
-}
 
 // Initialize DOMPurify (needs window context, so check for browser)
 let sanitize = (html: string) => html;
@@ -188,18 +161,9 @@ export async function fetchFeed(
                                 throw new Error('Proxy returned HTML (feed proxy likely missing in production)');
                             }
 
-                            // Pre-process malformed XML before parsing
-                            text = cleanupMalformedXML(text);
-                            
-                            try {
-                                const feedData = await parser.parseString(text);
-                                return feedData;
-                            } catch (parseErr) {
-                                // Log detailed parse error and first 500 chars of cleaned XML
-                                console.warn(`Parse error for ${candidate}:`, parseErr);
-                                console.log(`Cleaned XML (first 500 chars): ${text.substring(0, 500)}`);
-                                throw parseErr;
-                            }
+                            // Parse via server-side API
+                             const feedData = JSON.parse(text);
+                             return feedData;
                         } catch (proxyErr) {
                             candidateError = proxyErr;
                             lastError = proxyErr;

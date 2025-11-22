@@ -1,9 +1,9 @@
 <script lang="ts">
     import { onDestroy } from 'svelte';
-    import Dexie, { liveQuery } from 'dexie';
+    import { liveQuery } from 'dexie';
     import { db, type Feed } from '../db';
     import { selectedFeedId, selectedArticleId, searchQuery, refreshProgress, userSettings, showSettings, themeMode } from '../stores';
-    import { addNewFeed, refreshAllFeeds, syncFeed } from '../rss';
+    import { refreshAllFeeds, syncFeed } from '../rss';
     
     // Live Queries
     const folders = liveQuery(() => db.folders.toArray());
@@ -25,26 +25,8 @@
     $: feedsList = $feeds || [];
     $: foldersList = $folders || [];
     
-    let newFeedUrl = '';
-    let isImporting = false;
     let isManaging = false;
     let refreshingFeeds = new Set<number>();
-    
-    async function handleAddFeed() {
-        const url = newFeedUrl.trim();
-        if (!url) return;
-        try {
-            await addNewFeed(url);
-            newFeedUrl = '';
-        } catch (e) {
-            if (e instanceof Dexie.ConstraintError) {
-                alert('Feed already exists.');
-            } else {
-                console.error('Failed to add feed', e);
-                alert('Could not add feed. Please try again.');
-            }
-        }
-    }
     
     function selectFeed(id: number | undefined) {
         if (id !== undefined) $selectedFeedId = id;
@@ -120,10 +102,6 @@
     }
     
     onDestroy(() => clearInterval(refreshTimer));
-
-    function toggleTheme() {
-         $themeMode = $themeMode === 'dark' ? 'light' : 'dark';
-     }
 </script>
 
 <div 
@@ -139,59 +117,41 @@
     <!-- Controls -->
     <div class="p-4 space-y-2" style={`border-bottom: 1px solid ${$themeMode === 'dark' ? 'var(--o3-color-palette-black-30)' : 'var(--o3-color-palette-black-10)'}`}>
         <!-- Search -->
-        <div class="flex gap-2 items-center">
-            <div class="relative flex-1">
-                <input 
-                    type="text" 
-                    bind:value={$searchQuery} 
-                    placeholder="Search articles..." 
-                    class={`input text-sm h-8 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal w-full pl-8 ${$themeMode === 'dark' ? 'bg-o3-black-80 border-none text-o3-paper' : 'bg-o3-white border border-o3-black-20 text-o3-black-90'}`}
-                />
-                <span 
-                    class="absolute left-2 top-1.5 w-4 h-4 bg-o3-black-50 opacity-80 pointer-events-none"
-                    style="
-                        -webkit-mask-image: var(--o3-icon-search);
-                        mask-image: var(--o3-icon-search);
-                        -webkit-mask-repeat: no-repeat;
-                        mask-repeat: no-repeat;
-                        -webkit-mask-size: contain;
-                        mask-size: contain;
-                    "
-                    aria-hidden="true"
-                ></span>
-            </div>
-            <button 
-                class="o3-button o3-button--secondary o3-button--small o3-button-icon o3-button-icon--cross"
-                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
-                on:click={() => $searchQuery = ''}
-                disabled={!$searchQuery}
-                aria-disabled={!$searchQuery}
-            >
-                Clear
-            </button>
-        </div>
-
-        <div class="divider-h border-o3-black-80 my-2"></div>
-
-        <div class="flex gap-2">
+        <div class="relative w-full">
             <input 
                 type="text" 
-                bind:value={newFeedUrl} 
-                placeholder="Feed URL..." 
-                class={`input text-sm h-8 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal w-full ${$themeMode === 'dark' ? 'bg-o3-black-80 border-none text-o3-paper' : 'bg-o3-white border border-o3-black-20 text-o3-black-90'}`}
-                on:keydown={(e) => e.key === 'Enter' && handleAddFeed()}
+                bind:value={$searchQuery} 
+                placeholder="Search articles..." 
+                class={`input text-sm h-8 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal w-full pl-8 ${$searchQuery ? 'pr-8' : 'pr-3'} ${$themeMode === 'dark' ? 'bg-o3-black-80 border-none text-o3-paper' : 'bg-o3-white border border-o3-black-20 text-o3-black-90'}`}
             />
-            <button 
-                class="o3-button o3-button--primary o3-button--small o3-button-icon o3-button-icon--plus o3-button-icon--icon-only"
-                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
-                on:click={handleAddFeed}
-                title="Add Feed"
-            >
-                <span class="o3-button-icon__label">Add</span>
-            </button>
+            <span 
+                class="absolute left-2 top-1.5 w-4 h-4 bg-o3-black-50 opacity-80 pointer-events-none"
+                style="
+                    -webkit-mask-image: var(--o3-icon-search);
+                    mask-image: var(--o3-icon-search);
+                    -webkit-mask-repeat: no-repeat;
+                    mask-repeat: no-repeat;
+                    -webkit-mask-size: contain;
+                    mask-size: contain;
+                "
+                aria-hidden="true"
+            ></span>
+            {#if $searchQuery}
+                <button
+                    type="button"
+                    class="absolute right-2 top-1 text-lg leading-none text-o3-black-50 hover:text-o3-teal transition-colors"
+                    on:click={() => $searchQuery = ''}
+                    title="Clear search"
+                    aria-label="Clear search"
+                >
+                    ×
+                </button>
+            {/if}
         </div>
         
-        <div class="flex gap-1 mt-2">
+        <div class="divider-h border-o3-black-80 my-2"></div>
+
+        <div class="flex gap-1">
             {#if $refreshProgress}
                 <div class="flex-1 flex flex-col gap-1">
                     <button 
@@ -218,14 +178,6 @@
                 title="Manage Feeds"
             >
                 {isManaging ? 'Done' : 'Manage'}
-            </button>
-            <button 
-                class="o3-button o3-button--secondary o3-button--small"
-                data-o3-theme={$themeMode === 'dark' ? 'inverse' : 'standard'}
-                on:click={toggleTheme}
-                title="Toggle day/night"
-            >
-                {$themeMode === 'dark' ? 'Day' : 'Night'}
             </button>
             <button 
                 class="o3-button o3-button--secondary o3-button--small o3-button-icon o3-button-icon--settings o3-button-icon--icon-only"
