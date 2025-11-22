@@ -1,5 +1,5 @@
-import { error as httpError } from '@sveltejs/kit';
-import Parser from 'rss-parser';
+import { error as httpError, isHttpError } from '@sveltejs/kit';
+import { XMLParser } from 'fast-xml-parser';
 import type { RequestHandler } from './$types';
 
 // Some feeds ship malformed XML (unclosed CDATA, `<link/>http...` fragments, etc.)
@@ -17,22 +17,84 @@ function cleanupMalformedXml(xml: string): string {
     return cleaned;
 }
 
-const parser = new Parser({
-    customFields: {
-        item: ['media:content', 'media:thumbnail', 'content:encoded', 'dc:creator'],
-    },
-    defaultRSS: 2.0,
-    xml2js: {
-        resolveNamespace: true
-    }
+const xmlParser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '',
+    allowBooleanAttributes: true,
+    trimValues: true
 });
+
+function toArray<T>(value: T | T[] | undefined): T[] {
+    if (Array.isArray(value)) return value;
+    return value !== undefined ? [value] : [];
+}
+
+function parseDate(value: any): string | undefined {
+    if (!value) return undefined;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+function normalizeFeed(text: string) {
+    const parsed = xmlParser.parse(cleanupMalformedXml(text));
+    const channel = parsed?.rss?.channel || parsed?.feed || parsed?.rdf;
+    const root = Array.isArray(channel) ? channel[0] : channel || {};
+
+    const itemsRaw = root.item || root.entry || [];
+    const items = toArray<any>(itemsRaw).map((item) => {
+        const linkValue = item.link;
+        const link =
+            typeof linkValue === 'string'
+                ? linkValue
+                : Array.isArray(linkValue)
+                    ? (linkValue.find((l: any) => typeof l === 'string') ||
+                        linkValue.find((l: any) => typeof l?.href === 'string')?.href ||
+                        linkValue[0])
+                    : typeof linkValue === 'object' && linkValue
+                        ? linkValue.href || linkValue._ || ''
+                        : '';
+
+        const contentEncoded =
+            item['content:encoded'] ??
+            (typeof item.content === 'object' ? item.content?.['#text'] ?? item.content?.['$text'] ?? item.content?.['cdata'] : undefined) ??
+            item.content;
+
+        const summary =
+            item.description ??
+            (typeof item.summary === 'object' ? item.summary?.['#text'] ?? item.summary?.['$text'] : item.summary) ??
+            '';
+
+        const pubDate = item.pubDate || item.published || item.updated;
+        const isoDate = parseDate(item.isoDate || pubDate);
+
+        return {
+            title: item.title?.['#text'] ?? item.title ?? '',
+            link,
+            guid: item.guid?.['#text'] ?? item.guid ?? '',
+            pubDate: pubDate ?? '',
+            isoDate: isoDate ?? '',
+            'content:encoded': typeof contentEncoded === 'string' ? contentEncoded : '',
+            content: typeof contentEncoded === 'string' ? contentEncoded : summary,
+            summary,
+            'dc:creator': item['dc:creator'] ?? item.creator ?? item.author ?? '',
+            author: item.author ?? item['dc:creator'] ?? ''
+        };
+    });
+
+    return {
+        title: root.title?.['#text'] ?? root.title ?? '',
+        link: root.link?.['#text'] ?? root.link ?? '',
+        description: root.description ?? root.subtitle ?? '',
+        items
+    };
+}
 
 export const GET: RequestHandler = async ({ url }) => {
     const feedUrl = url.searchParams.get('url');
     const refresh = url.searchParams.get('refresh') === 'true';
     
     if (!feedUrl) {
-        return httpError(400, 'Missing url parameter');
+        throw httpError(400, 'Missing url parameter');
     }
     
     try {
@@ -46,16 +108,16 @@ export const GET: RequestHandler = async ({ url }) => {
         });
         
         if (!response.ok) {
-            return httpError(response.status, `Feed returned ${response.status}`);
+            throw httpError(response.status, `Feed returned ${response.status}`);
         }
         
         const text = await response.text();
         let feedData;
         try {
-            feedData = await parser.parseString(cleanupMalformedXml(text));
+            feedData = normalizeFeed(text);
         } catch (parseErr: any) {
             console.error(`Parse error for ${feedUrl}:`, parseErr);
-            return httpError(502, `Failed to parse feed: ${parseErr.message}`);
+            throw httpError(502, `Failed to parse feed: ${parseErr.message || parseErr}`);
         }
         
         const headers: Record<string, string> = {
@@ -71,12 +133,19 @@ export const GET: RequestHandler = async ({ url }) => {
 
         return new Response(JSON.stringify(feedData), { headers });
     } catch (err: any) {
-        console.error(`Failed to fetch feed ${feedUrl}:`, err.message);
+        if (isHttpError(err) || (err?.location && typeof err?.status === 'number')) {
+            throw err;
+        }
+
+        const message = err?.message || String(err);
+        const name = err?.name;
+
+        console.error(`Failed to fetch feed ${feedUrl}:`, message);
         
-        if (err.name === 'AbortError') {
-            return httpError(504, `Feed request timeout after 10 seconds`);
+        if (name === 'AbortError' || name === 'TimeoutError') {
+            throw httpError(504, `Feed request timeout after 10 seconds`);
         }
         
-        return httpError(502, `Failed to fetch feed: ${err.message}`);
+        throw httpError(502, `Failed to fetch feed: ${message}`);
     }
 };
