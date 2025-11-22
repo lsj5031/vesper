@@ -1,7 +1,9 @@
 <script lang="ts">
+    import Dexie from 'dexie';
     import { showSettings, themeMode } from '../stores';
     import { importOPML, exportOPML } from '../opml';
     import { importBackup, exportBackup } from '../backup';
+    import { addNewFeed } from '../rss';
 
     function close() {
         $showSettings = false;
@@ -10,6 +12,28 @@
     let isDark: boolean;
     $: isDark = $themeMode === 'dark';
     let errorMessage: string | null = null;
+    let newFeedUrl = '';
+    let isAddingFeed = false;
+
+    async function handleAddFeed() {
+        const url = newFeedUrl.trim();
+        if (!url || isAddingFeed) return;
+        errorMessage = null;
+        isAddingFeed = true;
+        try {
+            await addNewFeed(url);
+            newFeedUrl = '';
+        } catch (e) {
+            if (e instanceof Dexie.ConstraintError) {
+                errorMessage = 'Feed already exists.';
+            } else {
+                console.error('Failed to add feed', e);
+                errorMessage = 'Could not add feed. Please try again.';
+            }
+        } finally {
+            isAddingFeed = false;
+        }
+    }
 
     async function handleFileSelect(e: Event) {
          const input = e.target as HTMLInputElement;
@@ -72,6 +96,47 @@
         {/if}
 
         <div class="space-y-6">
+            <!-- Theme -->
+            <div class="space-y-2">
+                <h3 class="text-sm font-bold text-o3-teal uppercase tracking-wider" style={`color:${isDark ? 'var(--o3-color-palette-teal)' : 'var(--o3-color-palette-teal)'}`}>Appearance</h3>
+                <button 
+                    class="w-full px-3 py-2 rounded text-xs font-semibold uppercase tracking-wide transition-colors border"
+                    class:border-o3-teal={true}
+                    class:text-o3-teal={true}
+                    style={isDark ? 'border-opacity: 0.5; background: rgba(17, 153, 142, 0.1)' : 'border-opacity: 0.3; background: rgba(17, 153, 142, 0.05)'}
+                    on:click={() => {
+                        $themeMode = $themeMode === 'dark' ? 'light' : 'dark';
+                    }}
+                >
+                    Switch to {$themeMode === 'dark' ? 'Day' : 'Night'} Mode
+                </button>
+            </div>
+
+            <!-- Add Feed -->
+            <div class="space-y-2">
+                <h3 class="text-sm font-bold text-o3-teal uppercase tracking-wider" style={`color:${isDark ? 'var(--o3-color-palette-teal)' : 'var(--o3-color-palette-teal)'}`}>Add Feed</h3>
+                <div class="flex gap-2">
+                    <input 
+                        type="text" 
+                        bind:value={newFeedUrl} 
+                        placeholder="Feed URL..." 
+                        class={`input text-sm h-9 rounded-none placeholder-o3-black-50 focus:ring-1 focus:ring-o3-teal flex-1 ${isDark ? 'bg-o3-black-80 border-none text-o3-paper' : 'bg-o3-white border border-o3-black-20 text-o3-black-90'}`}
+                        on:keydown={(e) => e.key === 'Enter' && handleAddFeed()}
+                        disabled={isAddingFeed}
+                    />
+                    <button 
+                        class="px-3 py-2 rounded text-xs font-semibold uppercase tracking-wide transition-colors border"
+                        class:border-o3-teal={true}
+                        class:text-o3-teal={true}
+                        style={isDark ? 'border-opacity: 0.5; background: rgba(17, 153, 142, 0.1)' : 'border-opacity: 0.3; background: rgba(17, 153, 142, 0.05)'}
+                        on:click={handleAddFeed}
+                        disabled={!newFeedUrl.trim() || isAddingFeed}
+                    >
+                        {isAddingFeed ? 'Adding...' : 'Add'}
+                    </button>
+                </div>
+            </div>
+
             <!-- OPML -->
             <div class="space-y-2">
                 <h3 class="text-sm font-bold text-o3-teal uppercase tracking-wider" style={`color:${isDark ? 'var(--o3-color-palette-teal)' : 'var(--o3-color-palette-teal)'}`}>OPML Import/Export</h3>
